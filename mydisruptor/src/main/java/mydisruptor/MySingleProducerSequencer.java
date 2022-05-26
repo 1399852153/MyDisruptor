@@ -1,5 +1,7 @@
 package mydisruptor;
 
+import mydisruptor.waitstrategy.MyWaitStrategy;
+
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -24,7 +26,9 @@ public class MySingleProducerSequencer {
     /**
      * 生产者序列器所属ringBuffer的消费者的序列
      * */
-    private final MySequence consumerSequence = new MySequence();
+    private MySequence consumerSequence;
+
+    private final MyWaitStrategy myWaitStrategy;
 
     /**
      * 当前已申请的序列(但是是否发布了，要看currentProducerSequence)
@@ -40,8 +44,9 @@ public class MySingleProducerSequencer {
      * */
     private long cachedConsumerSequenceValue = -1;
 
-    public MySingleProducerSequencer(int ringBufferSize) {
+    public MySingleProducerSequencer(int ringBufferSize, MyWaitStrategy myWaitStrategy) {
         this.ringBufferSize = ringBufferSize;
+        this.myWaitStrategy = myWaitStrategy;
     }
 
     /**
@@ -91,7 +96,16 @@ public class MySingleProducerSequencer {
         // 发布时，直接volatile的更新生产者队列即可（注意：这里可以优化为lazySet，后续待实现）
         this.currentProducerSequence.set(publishIndex);
 
-        // signalAllWhenBlocking();
+        // 发布完成后，唤醒可能阻塞等待的消费者线程
+        this.myWaitStrategy.signalWhenBlocking();
+    }
+
+    public MySequenceBarrier newBarrier(){
+        return new MySequenceBarrier(this.currentProducerSequence,this.myWaitStrategy);
+    }
+
+    public void setConsumerSequence(MySequence consumerSequence){
+        this.consumerSequence = consumerSequence;
     }
 
     public int getRingBufferSize() {

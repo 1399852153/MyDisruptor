@@ -41,4 +41,12 @@ public class MyRingBuffer<T> {
     public void publish(Long index){
         this.mySingleProducerSequencer.publish(index);
     }
+
+    public void setConsumerSequence(MySequence consumerSequence){
+        this.mySingleProducerSequencer.setConsumerSequence(consumerSequence);
+    }
+
+    public MySequenceBarrier newBarrier() {
+        return this.mySingleProducerSequencer.newBarrier();
+    }
 }
