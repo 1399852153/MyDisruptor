@@ -33,7 +33,7 @@ public class MyRingBufferTestV1 {
             OrderModel orderEvent = myRingBuffer.get(nextIndex);
             orderEvent.setMessage("message-"+i);
             orderEvent.setPrice(i * 10);
-//            LogUtil.logWithThreadName("生产者发布事件：" + orderEvent);
+            LogUtil.logWithThreadName("生产者发布事件：" + orderEvent);
             myRingBuffer.publish(nextIndex);
         }
     }
