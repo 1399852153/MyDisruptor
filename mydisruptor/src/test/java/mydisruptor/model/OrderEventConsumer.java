@@ -18,7 +18,7 @@ public class OrderEventConsumer implements MyEventHandler<OrderModel> {
     @Override
     public void consume(OrderModel event, long sequence, boolean endOfBatch) {
         try {
-            Thread.sleep(1000L);
+            Thread.sleep(5000L);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

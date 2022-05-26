@@ -4,6 +4,7 @@ import mydisruptor.*;
 import mydisruptor.model.OrderEventConsumer;
 import mydisruptor.model.OrderEventProducer;
 import mydisruptor.model.OrderModel;
+import mydisruptor.util.LogUtil;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
 import mydisruptor.waitstrategy.MyWaitStrategy;
 import org.junit.Test;
@@ -32,6 +33,7 @@ public class MyRingBufferTestV1 {
             OrderModel orderEvent = myRingBuffer.get(nextIndex);
             orderEvent.setMessage("message-"+i);
             orderEvent.setPrice(i * 10);
+//            LogUtil.logWithThreadName("生产者发布事件：" + orderEvent);
             myRingBuffer.publish(nextIndex);
         }
     }
