@@ -93,8 +93,9 @@ public class MySingleProducerSequencer {
     }
 
     public void publish(long publishIndex){
-        // 发布时，直接volatile的更新生产者队列即可（注意：这里可以优化为lazySet，后续待实现）
-        this.currentProducerSequence.set(publishIndex);
+        // 发布时，更新生产者队列
+        // lazySet，由于消费者可以批量的拉取数据，所以不必每次发布时都volatile的更新，允许消费者晚一点感知到，这样性能会更好
+        this.currentProducerSequence.lazySet(publishIndex);
 
         // 发布完成后，唤醒可能阻塞等待的消费者线程
         this.myWaitStrategy.signalWhenBlocking();

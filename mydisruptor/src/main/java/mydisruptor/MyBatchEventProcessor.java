@@ -39,12 +39,12 @@ public class MyBatchEventProcessor<T> implements Runnable{
                     nextConsumerIndex++;
                 }
 
-                // 更新当前消费者的消费的序列
-                this.currentConsumeSequence.set(availableConsumeIndex);
+                // 更新当前消费者的消费的序列（lazySet，不需要生产者实时的强感知刷缓存性能更好，因为生产者自己也不是实时的读消费者序列的）
+                this.currentConsumeSequence.lazySet(availableConsumeIndex);
                 LogUtil.logWithThreadName("更新当前消费者的消费的序列:" + availableConsumeIndex);
             } catch (final Throwable ex) {
-                // 发生异常，消费进度依然推进（跳过这一批拉取的数据）
-                this.currentConsumeSequence.set(nextConsumerIndex);
+                // 发生异常，消费进度依然推进（跳过这一批拉取的数据）（lazySet 原理同上）
+                this.currentConsumeSequence.lazySet(nextConsumerIndex);
                 nextConsumerIndex++;
             }
         }
