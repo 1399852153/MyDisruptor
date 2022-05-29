@@ -11,3 +11,4 @@
 6. ringBuffer等关键组件解决伪共享问题 + 参考disruptor对特定的数据结构做进一步优化  
 
 每一部分都会有单独的分支和对应的技术博客 todo 待更新
+1. v1版本分支:  feature/lab1 lab1_blog.md
