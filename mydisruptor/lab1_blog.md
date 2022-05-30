@@ -49,15 +49,72 @@ disruptor从设计一开始就引入了单调递增的序列号机制，每个�
 * 生产者每进行一次生产发布，生产者序列号就加1；消费者每进行一次消费，消费者序列号也加1。消费者的序列号永远不能超过生产者
 * 当生产者的序列号超过消费者时，说明当前生产速度超过了消费速度；当生产者超过最慢消费者的序列之差和队列容量相等时，需要阻塞生产者，等待消费者消费（逻辑上等于队列已满）
 * 反之，当消费者的序列号即将超过生产者时（临界状态恰好等于），则需要阻塞当前消费者，等待生产者生产（逻辑上等于队列为空）  
-* 在消费者间存在依赖的场景下，不同于消费者间通过传递队列元素对象来实现依赖关系。当前消费者除了需要关注生产者的序列号，也关注其依赖的上游消费者。使自己的序列号始终不超过上游消费者的序列号，巧妙地实现依赖关系。  
+* 在消费者间存在依赖的场景下，不同于消费者间通过传递队列元素对象来实现依赖关系。当前消费者除了需要关注生产者的序列号，也关注其依赖的上游消费者。使自己的序列号始终不超过上游消费者的序列号，巧妙地实现依赖关系。
+#####
 disruptor拆分了传统队列中多写多读的队列头、尾等多读多写的变量，仅凭借内存可见性就完成了生产者和消费者间的通信
 
-## disruptor关键组件关系
-todo 各个组件关联图
+### disruptor简要架构图
+![disruptor简要架构图](disruptor简要架构图.png)
 
-## 3.1 MySequence序列对象
+下面我们基于源码分析MyDisruptor，MyDisruptor内各个组件都在disruptor对应组件名称的基础上加了My前缀以作区分。
+## 3.1 MySequence序列号对象
+前面提到序列号Sequence是disruptor实现生产者、消费者间互相通信的关键，因此在Sequence内部有一个volatile修饰的long变量value（long类型足够大，可以不用考虑溢出），用于标识单调递增的序列号。  
+为了在特定的场景下避免对volatile变量更新时不必要的刷新CPU缓存，通过unsafe的putOrderedLong方法来优化性能（具体用到的地方会在后面章节中展开）。  
+putOrderedLong操作在实际更新前会插入store-store屏障（保证与之前发生的写操作的有序性，不会重排序导致乱序），比起对volatile修饰的value=xxx时设置的store-load屏障性能要好一些。
+其带来的后果就是putOrderedLong更新后，不会立即强制CPU刷新缓存数据到主内存中，导致其修改的最新值对其它CPU核心（其它线程）来说不是立即可见的（延迟在纳秒级别）。
+```java
+/**
+ * 序列号对象（仿Disruptor.Sequence）
+ * 由于需要被生产者、消费者线程同时访问，因此内部是一个volatile修饰的long值
+ * */
+public class MySequence {
+
+    /**
+     * 序列起始值默认为-1，保证下一序列恰好是0（即第一个合法的序列号）
+     * */
+    private volatile long value = -1;
+
+    private static final Unsafe UNSAFE;
+    private static final long VALUE_OFFSET;
+
+    static {
+        try {
+            // 由于提供给cas内存中字段偏移量的unsafe类只能在被jdk信任的类中直接使用，这里使用反射来绕过这一限制
+            Field getUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+            getUnsafe.setAccessible(true);
+            UNSAFE = (Unsafe) getUnsafe.get(null);
+            VALUE_OFFSET = UNSAFE.objectFieldOffset(MySequence.class.getDeclaredField("value"));
+        }
+        catch (final Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public MySequence() {
+    }
+
+    public MySequence(long value) {
+        this.value = value;
+    }
+
+    public long get() {
+        return value;
+    }
+
+    public void set(long value) {
+        this.value = value;
+    }
+
+    public void lazySet(long value) {
+        UNSAFE.putOrderedLong(this, VALUE_OFFSET, value);
+    }
+}
+```
+看完代码后你可能会有一个疑问，这不就是一个简易版的AtomicLong吗，为什么disruptor还要自己造一个出来呢？  
+确实在v1版本中，Sequence类比起juc的AtomicLong只是名字上更加贴合业务而已，能被AtomicLong完全的代替。
+但Disruptor通过填充多余的字段解决了Sequence中value变量的伪共享问题，MyDisruptor中伪共享的实现放在了后面的版本，所以v1版本在这里提前进行了抽象，方便大家后续的理解。
 ## 3.2 MyRingBuffer环形队列
 ## 3.3 MyBatchEventProcessor单线程消费者
 ## 3.4 MySingleProducerSequencer单线程生产者
 ## 3.5 MyDisruptor使用Demo分析
-## 总结
+# 总结
