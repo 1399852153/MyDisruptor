@@ -69,24 +69,29 @@ public class MySingleProducerSequencer {
         long cachedGatingSequence = this.cachedConsumerSequenceValue;
 
         // 消费者位点cachedValue并不是实时获取的（因为在没有超过环绕点一圈时，生产者是可以放心生产的）
-        // 每次发布都实时获取反而会发起对消费者sequence强一致的读，迫使消费者线程所在的CPU刷新缓存（而这是不需要的）
+        // 每次发布都实时获取反而会触发对消费者sequence强一致的读，迫使消费者线程所在的CPU刷新缓存（而这是不需要的）
         if(wrapPoint > cachedGatingSequence){
+            // 比起disruptor省略了if中的cachedGatingSequence > nextProducerSequence逻辑
+            // 原因请见：https://github.com/LMAX-Exchange/disruptor/issues/76
+
+            // 比起disruptor省略了currentProducerSequence.set(nextProducerSequence);
+            // 原因请见：https://github.com/LMAX-Exchange/disruptor/issues/291
             long minSequence;
 
             // 当生产者发现确实当前已经超过了一圈，则必须去读最新的消费者序列了，看看消费者的消费进度是否推进了
-            // 这里的consumerSequence.getValue是对volatile变量的读，是实时的
+            // 这里的consumerSequence.get是对volatile变量的读，是实时的、强一致的读
             while(wrapPoint > (minSequence = consumerSequence.get())){
                 // 如果确实超过了一圈，则生产者无法获取可用的队列空间，循环的间歇性park阻塞
                 LockSupport.parkNanos(1L);
             }
 
-            // 满足条件了，则缓存获得的最新的消费者序列
-            // 因为不是实时获取消费者序列，可能cachedValue比之前的要前进很多
-            // 这种情况下，待到下一次next申请时就可以不用去volatile强一致的读consumerSequence了
+            // 满足条件了，则缓存获得最新的消费者序列
+            // 因为不是实时获取消费者序列，可能cachedValue比上一次的值要大很多
+            // 这种情况下，待到下一次next申请时就可以不用去强一致的读consumerSequence了
             this.cachedConsumerSequenceValue = minSequence;
         }
 
-        // 记录本次申请成功后的，已申请的生产者位点
+        // 记录本次申请后的，已申请的生产者位点
         this.nextValue = nextProducerSequence;
 
         return nextProducerSequence;
@@ -95,6 +100,7 @@ public class MySingleProducerSequencer {
     public void publish(long publishIndex){
         // 发布时，更新生产者队列
         // lazySet，由于消费者可以批量的拉取数据，所以不必每次发布时都volatile的更新，允许消费者晚一点感知到，这样性能会更好
+        // 设置写屏障
         this.currentProducerSequence.lazySet(publishIndex);
 
         // 发布完成后，唤醒可能阻塞等待的消费者线程
