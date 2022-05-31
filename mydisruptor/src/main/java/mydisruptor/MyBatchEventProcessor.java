@@ -4,7 +4,7 @@ import mydisruptor.api.MyEventHandler;
 import mydisruptor.util.LogUtil;
 
 /**
- * 单线程消费者
+ * 单线程消费者（仿Disruptor.BatchEventProcessor）
  * */
 public class MyBatchEventProcessor<T> implements Runnable{
 

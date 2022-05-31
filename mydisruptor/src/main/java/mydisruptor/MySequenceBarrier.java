@@ -2,7 +2,9 @@ package mydisruptor;
 
 import mydisruptor.waitstrategy.MyWaitStrategy;
 
-
+/**
+ * 序列栅栏（仿Disruptor.SequenceBarrier）
+ * */
 public class MySequenceBarrier {
 
     private final MySequence currentProducerSequence;

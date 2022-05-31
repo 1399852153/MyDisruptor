@@ -52,7 +52,7 @@ disruptor从设计一开始就引入了单调递增的序列号机制，每个�
 #####
 disruptor拆分了传统队列中多写多读的队列头、尾等多读多写的变量，仅凭借内存可见性就完成了生产者和消费者间的通信
 ### disruptor简要架构图
-![disruptor简要架构图.png](disruptor简要架构图.png)!
+![img.png](disruptor简易架构图.png)
 下面我们基于源码分析MyDisruptor，MyDisruptor内各个组件都在disruptor对应组件名称的基础上加了My前缀以作区分。
 ## 3.2 MyDisruptor核心组件解析
 ### MySequence序列号对象
@@ -116,11 +116,8 @@ public class MySequence {
 根据序列号更新队列中下标对应的事件对象；二阶段通过publish方法更新生产者序列号进行实际发布，令新生产的动作可以被消费者感知到。
 * 生产者内部维护了消费者的序列号对象。next方法获取可用的序列号时需要避免消费者的序列号落后所要申请的最大序列号一圈。 
   因为在逻辑上消费者序列对应的位置可以视为队列头，而生产者序列对应的位置可以视为队列尾，当队列尾与队列头之差超过了队列本身长度时，就说明逻辑上队列已满。
-  此时生产者应该阻塞等待消费者，否则生产者将会覆盖还未被消费者确认消费完成的事件。  
-  
-<details>
-  <summary>MySingleProducerSequencer实现</summary>
-  <pre><code>
+  此时生产者应该阻塞等待消费者，否则生产者将会覆盖还未被消费者确认消费完成的事件。
+```java
 /**
  * 单线程生产者序列器（仿Disruptor.SingleProducerSequencer）
  * 只支持单消费者的简易版本（只有一个consumerSequence）
@@ -234,13 +231,112 @@ public class MySingleProducerSequencer {
         return ringBufferSize;
     }
 }
-</code></pre>
-</details>  
-
+```
 ##### 生产者自旋性能隐患
 上述MySingleProducerSequencer的实现中，生产者是通过park(1L)自旋来等待消费者的。如果消费者消费速度比较慢，那么生产者线程将长时间的处于自旋状态，严重浪费CPU资源。因此使用next方式获取生产者序列号时，用户必须保证消费者有足够的消费速度。  
-disruptor和juc下很多并发工具类一样，除了提供内部自动阻塞的next方法外，还提供了tryNext方法。tryNext在消费者速度偏慢无法获得可用的生产序列时直接抛出特定的异常，用户在捕获异常后可以灵活的控制重试的间隔。tryNext方法原理和next是相同的，限于篇幅在v1版本中就不先实现该方法了。
-### MyRingBuffer环形队列
+disruptor和juc下很多并发工具类一样，除了提供内部自动阻塞的next方法外，还提供了非阻塞的tryNext方法。tryNext在消费者速度偏慢无法获得可用的生产序列时直接抛出特定的异常，用户在捕获异常后可以灵活的控制重试的间隔。tryNext原理和next是相同的，限于篇幅在v1版本中就先不实现该方法了。
+##### 新生产的队列元素可见性问题
+disruptor中对入队元素对象是没有任何要求的，那么disruptor是如何保证生产者对新入队对象的改动对消费者线程是可见的，不会由于高速缓存的刷新延迟而读到旧值呢？  
+答案是通过publish方法中对生产者Sequence对象lazySet操作中设置的写屏障。lazySet设置了一个store-store的屏障禁止了写操作的重排序，保证了publish方法执行前生产者对事件对象更新的写操作一定先于对生产者Sequence的更新。因此当消费者线程读取到新的序列号时，就一定能正确的读取到序列号对应的事件对象。
 ### MyBatchEventProcessor单线程消费者
+* disruptor单线程消费者是以一个独立的线程运行的（实现了runnable接口），通过一个主循环不断的监听生产者的生产进度，批量获取已经发布可以访问、消费的事件对象。
+* 消费者需要能感知到生产者的生产进度，控制自己的消费序列不超过生产者，避免越界访问。
+* 实际的消费逻辑由用户实现MyEventHandler接口的处理器控制
+```java
+/**
+ * 单线程消费者（仿Disruptor.BatchEventProcessor）
+ * */
+public class MyBatchEventProcessor<T> implements Runnable{
+
+   private final MySequence currentConsumeSequence = new MySequence(-1);
+   private final MyRingBuffer<T> myRingBuffer;
+   private final MyEventHandler<T> myEventConsumer;
+   private final MySequenceBarrier mySequenceBarrier;
+
+   public MyBatchEventProcessor(MyRingBuffer<T> myRingBuffer,
+                                MyEventHandler<T> myEventConsumer,
+                                MySequenceBarrier mySequenceBarrier) {
+      this.myRingBuffer = myRingBuffer;
+      this.myEventConsumer = myEventConsumer;
+      this.mySequenceBarrier = mySequenceBarrier;
+   }
+
+   @Override
+   public void run() {
+      // 下一个需要消费的下标
+      long nextConsumerIndex = currentConsumeSequence.get() + 1;
+
+      // 消费者线程主循环逻辑，不断的尝试获取事件并进行消费（为了让代码更简单，暂不考虑优雅停止消费者线程的功能）
+      while(true) {
+         try {
+            long availableConsumeIndex = this.mySequenceBarrier.getAvailableConsumeSequence(nextConsumerIndex);
+
+            while (nextConsumerIndex <= availableConsumeIndex) {
+               // 取出可以消费的下标对应的事件，交给eventConsumer消费
+               T event = myRingBuffer.get(nextConsumerIndex);
+               this.myEventConsumer.consume(event, nextConsumerIndex, nextConsumerIndex == availableConsumeIndex);
+               // 批处理，一次主循环消费N个事件（下标加1，获取下一个）
+               nextConsumerIndex++;
+            }
+
+            // 更新当前消费者的消费的序列（lazySet，不需要生产者实时的强感知刷缓存性能更好，因为生产者自己也不是实时的读消费者序列的）
+            this.currentConsumeSequence.lazySet(availableConsumeIndex);
+            LogUtil.logWithThreadName("更新当前消费者的消费的序列:" + availableConsumeIndex);
+         } catch (final Throwable ex) {
+            // 发生异常，消费进度依然推进（跳过这一批拉取的数据）（lazySet 原理同上）
+            this.currentConsumeSequence.lazySet(nextConsumerIndex);
+            nextConsumerIndex++;
+         }
+      }
+   }
+
+   public MySequence getCurrentConsumeSequence() {
+      return this.currentConsumeSequence;
+   }
+}
+
+/**
+ * 事件处理器接口
+ * */
+public interface MyEventHandler<T> {
+
+   /**
+    * 消费者消费事件
+    * @param event 事件对象本身
+    * @param sequence 事件对象在队列里的序列
+    * @param endOfBatch 当前事件是否是这一批处理事件中的最后一个
+    * */
+   void consume(T event, long sequence, boolean endOfBatch);
+}
+```
+
+### MySequenceBarrier序列屏障
+* 在v1版本中消费者的消费速度只取决于生产者的生产速度，而由于disruptor还实现了消费者间的依赖（比如A，B，C都消费完序号10，D才能消费序号10）,因此引入了SequenceBarrier序列屏障机制。
+  序列屏障可以
+```java
+/**
+ * 序列栅栏（仿Disruptor.SequenceBarrier）
+ * */
+public class MySequenceBarrier {
+
+    private final MySequence currentProducerSequence;
+    private final MyWaitStrategy myWaitStrategy;
+
+    public MySequenceBarrier(MySequence currentProducerSequence, MyWaitStrategy myWaitStrategy) {
+        this.currentProducerSequence = currentProducerSequence;
+        this.myWaitStrategy = myWaitStrategy;
+    }
+
+    /**
+     * 获得可用的消费者下标
+     * */
+    public long getAvailableConsumeSequence(long currentConsumeSequence) throws InterruptedException {
+        // v1版本只是简单的调用waitFor，等待其返回即可
+        return this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,this);
+    }
+}
+```  
+### MyRingBuffer环形队列
+
 ### MyDisruptor使用Demo分析
 # 总结
