@@ -406,6 +406,60 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
 需要注意的是，并不是所有的等待策略都需要去实现signalWhenBlocking方法。
 例如在disruptor内置的基于自旋的等待策略BusySpinWaitStrategy中，消费者线程并没有陷入阻塞态，自己能够及时的发现生产者新发布时序列的变化，所以其signalWhenBlocking是空实现。
 ### MyRingBuffer环形队列
+* v1版本的环形队列由三大核心组件组成：对象数组（elementList）、生产者序列器（mySingleProducerSequencer）、事件工厂（myEventFactory）
+* 序列号对队列长度ringBufferSize-1求余，可以获得序列号在对象数组中的实际下标（比如队列长度8，序列号25，则序列号25对应的实际下标为25%8=1）。  
+  由于计算机二进制存储的特性，对2的幂次方长度-1进行求余速度会比一般的数更快。例如序列号25的二进制值为11001，对7求余就是取后三位001（1），对15求余是取后4位1001（9），因此CPU硬件可以对这种特殊的求余进行加速。
+* 
+```java
+/**
+ * 环形队列（仿Disruptor.RingBuffer）
+ * */
+public class MyRingBuffer<T> {
+
+    private final T[] elementList;
+    private final MySingleProducerSequencer mySingleProducerSequencer;
+    private final MyEventFactory<T> myEventFactory;
+    private final int ringBufferSize;
+    private final int mask;
+
+    public MyRingBuffer(MySingleProducerSequencer mySingleProducerSequencer , MyEventFactory<T> myEventFactory) {
+        int bufferSize = mySingleProducerSequencer.getRingBufferSize();
+        if (Integer.bitCount(bufferSize) != 1) {
+            // ringBufferSize需要是2的倍数，类似hashMap，求余数时效率更高
+            throw new IllegalArgumentException("bufferSize must be a power of 2");
+        }
+
+        this.mySingleProducerSequencer = mySingleProducerSequencer;
+        this.myEventFactory = myEventFactory;
+        this.ringBufferSize = bufferSize;
+        this.elementList = (T[]) new Object[bufferSize];
+        // 回环掩码
+        this.mask = ringBufferSize;
+
+        // 预填充事件对象（后续生产者/消费者都只会更新事件对象，不会发生插入、删除等操作，避免GC）
+        for(int i=0; i<this.elementList.length; i++){
+            this.elementList[i] = myEventFactory.newInstance();
+        }
+    }
+
+    public T get(long sequence){
+        int index = (int) (sequence % mask);
+        return elementList[index];
+    }
+
+    public void publish(Long index){
+        this.mySingleProducerSequencer.publish(index);
+    }
+
+    public void setConsumerSequence(MySequence consumerSequence){
+        this.mySingleProducerSequencer.setConsumerSequence(consumerSequence);
+    }
+
+    public MySequenceBarrier newBarrier() {
+        return this.mySingleProducerSequencer.newBarrier();
+    }
+}
+```
 
 ### MyDisruptor使用Demo分析
 # 总结
