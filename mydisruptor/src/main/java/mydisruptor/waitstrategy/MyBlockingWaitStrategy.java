@@ -16,9 +16,9 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
     private final Condition processorNotifyCondition = lock.newCondition();
 
     @Override
-    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, MySequenceBarrier mySequenceBarrier)
+    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence)
             throws InterruptedException {
-        // 强一致的读生产者的序列号
+        // 强一致的读生产者序列号
         if (currentProducerSequence.get() < currentConsumeSequence) {
             // 如果ringBuffer的生产者下标小于当前消费者所需的下标，说明目前消费者消费速度大于生产者生产速度
 
@@ -43,7 +43,7 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
     public void signalWhenBlocking() {
         lock.lock();
         try {
-            // signal唤醒所有阻塞在条件变量上的消费者线程（多消费者时，会改为signalAll）
+            // signal唤醒所有阻塞在条件变量上的消费者线程（后续支持多消费者时，会改为signalAll）
             processorNotifyCondition.signal();
         }
         finally {

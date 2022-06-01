@@ -240,7 +240,7 @@ disruptor中对入队元素对象是没有任何要求的，那么disruptor是�
 答案是通过publish方法中对生产者Sequence对象lazySet操作中设置的写屏障。lazySet设置了一个store-store的屏障禁止了写操作的重排序，保证了publish方法执行前生产者对事件对象更新的写操作一定先于对生产者Sequence的更新。因此当消费者线程读取到新的序列号时，就一定能正确的读取到序列号对应的事件对象。
 ### MyBatchEventProcessor单线程消费者
 * disruptor单线程消费者是以一个独立的线程运行的（实现了runnable接口），通过一个主循环不断的监听生产者的生产进度，批量获取已经发布可以访问、消费的事件对象。
-* 消费者需要能感知到生产者的生产进度，控制自己的消费序列不超过生产者，避免越界访问。
+* 消费者通过**序列屏障MySequenceBarrier**感知生产者的生产进度，控制自己的消费序列不超过生产者，避免越界访问。
 * 实际的消费逻辑由用户实现MyEventHandler接口的处理器控制
 ```java
 /**
@@ -309,10 +309,9 @@ public interface MyEventHandler<T> {
    void consume(T event, long sequence, boolean endOfBatch);
 }
 ```
-
 ### MySequenceBarrier序列屏障
 * 在v1版本中消费者的消费速度只取决于生产者的生产速度，而由于disruptor还实现了消费者间的依赖（比如A，B，C都消费完序号10，D才能消费序号10）,因此引入了SequenceBarrier序列屏障机制。
-  序列屏障可以
+  由于v1版本只支持单消费者，因此v1的序列屏障中只包含了当前生产者的序列号。后续支持多消费者后，序列屏障还会维护当前消费者所依赖的消费者序列集合用于实现多消费者间的依赖关系。
 ```java
 /**
  * 序列栅栏（仿Disruptor.SequenceBarrier）
@@ -336,6 +335,76 @@ public class MySequenceBarrier {
     }
 }
 ```  
+### MyWaitStrategy等待策略
+* 消费者在队列为空，需要阻塞等待生产者生产新的事件。等待的策略可以有很多，比如无限循环的自旋，基于条件变量的阻塞/唤醒等。  
+为此disruptor抽象出了WaitStrategy接口允许用户自己实现来精细控制等待逻辑，同时也提供了很多种现成的阻塞策略（比如无限自旋的BusySpinWaitStrategy，基于条件变量阻塞/唤醒的BlockingWaitStrategy等）。  
+* disruptor的等待策略抽象出了两个方法，一个是被消费者调用，用于阻塞等待的方法waitFor（类似jdk Condition的await）；另一个是被生产者在publish发布时调用的方法signalWhenBlocking，用于唤醒可能阻塞于waitFor的消费者（类似jdk Condition的signal）
+```java
+/**
+ * 消费者等待策略(仿Disruptor.WaitStrategy)
+ * */
+public interface MyWaitStrategy {
+
+   /**
+    * 类似jdk Condition的await，如果不满足条件就会阻塞在该方法内，不返回
+    * */
+   long waitFor(long currentConsumeSequence, MySequence currentProducerSequence) throws InterruptedException;
+
+   /**
+    * 类似jdk Condition的signal，唤醒waitFor阻塞在该等待策略对象上的消费者线程
+    * */
+   void signalWhenBlocking();
+}
+```
+##### 阻塞等待策略实现
+限于篇幅，v1版本只实现了最具有代表性的，基于条件变量阻塞/唤醒的等待策略来展示等待策略具体是如何工作的。
+```java
+/**
+ * 阻塞等待策略
+ * */
+public class MyBlockingWaitStrategy implements MyWaitStrategy{
+
+    private final Lock lock = new ReentrantLock();
+    private final Condition processorNotifyCondition = lock.newCondition();
+
+    @Override
+    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence) throws InterruptedException {
+        // 强一致的读生产者序列号
+        if (currentProducerSequence.get() < currentConsumeSequence) {
+            // 如果ringBuffer的生产者下标小于当前消费者所需的下标，说明目前消费者消费速度大于生产者生产速度
+
+            lock.lock();
+            try {
+                //
+                while (currentProducerSequence.get() < currentConsumeSequence) {
+                    // 消费者的消费速度比生产者的生产速度快，阻塞等待
+                    processorNotifyCondition.await();
+                }
+            }
+            finally {
+                lock.unlock();
+            }
+        }
+
+        // 跳出了上面的循环，说明生产者序列已经超过了当前所要消费的位点（currentProducerSequence > currentConsumeSequence）
+        return currentConsumeSequence;
+    }
+
+    @Override
+    public void signalWhenBlocking() {
+        lock.lock();
+        try {
+            // signal唤醒所有阻塞在条件变量上的消费者线程（后续支持多消费者时，会改为signalAll）
+            processorNotifyCondition.signal();
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+}
+```
+需要注意的是，并不是所有的等待策略都需要去实现signalWhenBlocking方法。
+例如在disruptor内置的基于自旋的等待策略BusySpinWaitStrategy中，消费者线程并没有陷入阻塞态，自己能够及时的发现生产者新发布时序列的变化，所以其signalWhenBlocking是空实现。
 ### MyRingBuffer环形队列
 
 ### MyDisruptor使用Demo分析

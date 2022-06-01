@@ -20,6 +20,6 @@ public class MySequenceBarrier {
      * */
     public long getAvailableConsumeSequence(long currentConsumeSequence) throws InterruptedException {
         // v1版本只是简单的调用waitFor，等待其返回即可
-        return this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,this);
+        return this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence);
     }
 }
