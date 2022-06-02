@@ -1,6 +1,9 @@
 package mydisruptor.model;
 
-public class OrderModel {
+/**
+ * 订单事件对象
+ * */
+public class OrderEventModel {
 
     private String message;
     private int price;

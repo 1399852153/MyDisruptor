@@ -1,6 +1,7 @@
 package mydisruptor;
 
 import mydisruptor.api.MyEventFactory;
+import mydisruptor.waitstrategy.MyWaitStrategy;
 
 /**
  * 环形队列（仿Disruptor.RingBuffer）
@@ -9,11 +10,10 @@ public class MyRingBuffer<T> {
 
     private final T[] elementList;
     private final MySingleProducerSequencer mySingleProducerSequencer;
-    private final MyEventFactory<T> myEventFactory;
     private final int ringBufferSize;
     private final int mask;
 
-    public MyRingBuffer(MySingleProducerSequencer mySingleProducerSequencer , MyEventFactory<T> myEventFactory) {
+    public MyRingBuffer(MySingleProducerSequencer mySingleProducerSequencer, MyEventFactory<T> myEventFactory) {
         int bufferSize = mySingleProducerSequencer.getRingBufferSize();
         if (Integer.bitCount(bufferSize) != 1) {
             // ringBufferSize需要是2的倍数，类似hashMap，求余数时效率更高
@@ -21,7 +21,6 @@ public class MyRingBuffer<T> {
         }
 
         this.mySingleProducerSequencer = mySingleProducerSequencer;
-        this.myEventFactory = myEventFactory;
         this.ringBufferSize = bufferSize;
         this.elementList = (T[]) new Object[bufferSize];
         // 回环掩码
@@ -34,8 +33,17 @@ public class MyRingBuffer<T> {
     }
 
     public T get(long sequence){
-        int index = (int) (sequence % mask);
+        // 由于ringBuffer的长度是2次幂，mask为2次幂-1，因此可以将求余运算优化为位运算
+        int index = (int) (sequence & mask);
         return elementList[index];
+    }
+
+    public long next(){
+        return this.mySingleProducerSequencer.next();
+    }
+
+    public long next(int n){
+        return this.mySingleProducerSequencer.next(n);
     }
 
     public void publish(Long index){
@@ -48,5 +56,10 @@ public class MyRingBuffer<T> {
 
     public MySequenceBarrier newBarrier() {
         return this.mySingleProducerSequencer.newBarrier();
+    }
+
+    public static <E> MyRingBuffer<E> createSingleProducer(MyEventFactory<E> factory, int bufferSize, MyWaitStrategy waitStrategy) {
+        MySingleProducerSequencer sequencer = new MySingleProducerSequencer(bufferSize, waitStrategy);
+        return new MyRingBuffer<>(sequencer,factory);
     }
 }

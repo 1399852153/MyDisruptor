@@ -3,13 +3,10 @@ package mydisruptor.v1;
 import mydisruptor.*;
 import mydisruptor.model.OrderEventConsumer;
 import mydisruptor.model.OrderEventProducer;
-import mydisruptor.model.OrderModel;
+import mydisruptor.model.OrderEventModel;
 import mydisruptor.util.LogUtil;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
-import mydisruptor.waitstrategy.MyWaitStrategy;
 import org.junit.Test;
-
-import java.util.concurrent.locks.LockSupport;
 
 public class MyRingBufferTestV1 {
 
@@ -31,10 +28,10 @@ public class MyRingBufferTestV1 {
     public long one2one(int ringBufferSize,int produceCount){
         MySingleProducerSequencer singleProducerSequencer = new MySingleProducerSequencer(
                 ringBufferSize,new MyBlockingWaitStrategy());
-        MyRingBuffer<OrderModel> myRingBuffer = new MyRingBuffer<>(singleProducerSequencer,new OrderEventProducer());
+        MyRingBuffer<OrderEventModel> myRingBuffer = new MyRingBuffer<>(singleProducerSequencer,new OrderEventProducer());
 
         MySequenceBarrier mySequenceBarrier = myRingBuffer.newBarrier();
-        MyBatchEventProcessor<OrderModel> eventProcessor =
+        MyBatchEventProcessor<OrderEventModel> eventProcessor =
                 new MyBatchEventProcessor<>(myRingBuffer,
                         new OrderEventConsumer(produceCount),mySequenceBarrier);
         MySequence consumeSequence = eventProcessor.getCurrentConsumeSequence();
@@ -45,10 +42,10 @@ public class MyRingBufferTestV1 {
         long start = System.currentTimeMillis();
         for(int i=0; i<produceCount; i++) {
             long nextIndex = singleProducerSequencer.next();
-            OrderModel orderEvent = myRingBuffer.get(nextIndex);
+            OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
             orderEvent.setMessage("message-"+i);
             orderEvent.setPrice(i * 10);
-//            LogUtil.logWithThreadName("生产者发布事件：" + orderEvent);
+            LogUtil.logWithThreadName("生产者发布事件：" + orderEvent);
             myRingBuffer.publish(nextIndex);
         }
         long end = System.currentTimeMillis();

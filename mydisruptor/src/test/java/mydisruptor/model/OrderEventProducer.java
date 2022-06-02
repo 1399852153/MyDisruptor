@@ -2,9 +2,9 @@ package mydisruptor.model;
 
 import mydisruptor.api.MyEventFactory;
 
-public class OrderEventProducer implements MyEventFactory<OrderModel> {
+public class OrderEventProducer implements MyEventFactory<OrderEventModel> {
     @Override
-    public OrderModel newInstance() {
-        return new OrderModel();
+    public OrderEventModel newInstance() {
+        return new OrderEventModel();
     }
 }

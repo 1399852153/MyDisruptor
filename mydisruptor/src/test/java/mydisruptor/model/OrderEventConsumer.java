@@ -5,7 +5,7 @@ import mydisruptor.util.LogUtil;
 
 import java.util.Stack;
 
-public class OrderEventConsumer implements MyEventHandler<OrderModel> {
+public class OrderEventConsumer implements MyEventHandler<OrderEventModel> {
 
     private Stack<Integer> priceOrderStack = new Stack<>();
     private int maxConsumeTime;
@@ -16,7 +16,7 @@ public class OrderEventConsumer implements MyEventHandler<OrderModel> {
     }
 
     @Override
-    public void consume(OrderModel event, long sequence, boolean endOfBatch) {
+    public void consume(OrderEventModel event, long sequence, boolean endOfBatch) {
 //        try {
 //            Thread.sleep(1000L);
 //        } catch (InterruptedException e) {
