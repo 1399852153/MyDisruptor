@@ -51,7 +51,7 @@ v1版本是整个项目的基石，所以在这里先介绍disruptor的核心设
 #####
 disruptor拆分了传统队列中多写多读的队列头、尾等多读多写的变量，仅凭借内存可见性就完成了生产者和消费者间的通信
 ### disruptor简要架构图
-![img.png](disruptor简易架构图.png)
+![disruptor简易架构图.png](disruptor简易架构图.png)
 下面我们基于源码分析MyDisruptor，为了和lmax-Disruptor作区分MyDisruptor内各个组件都在disruptor对应组件名称的基础上加了My前缀。
 ## 3.2 MyDisruptor核心组件解析
 ### MySequence序列号对象
