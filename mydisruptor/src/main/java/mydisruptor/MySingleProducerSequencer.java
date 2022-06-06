@@ -1,7 +1,11 @@
 package mydisruptor;
 
+import mydisruptor.util.SequenceUtil;
 import mydisruptor.waitstrategy.MyWaitStrategy;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -24,9 +28,10 @@ public class MySingleProducerSequencer {
     private final MySequence currentProducerSequence = new MySequence();
 
     /**
-     * 生产者序列器所属ringBuffer的消费者的序列
+     * 生产者序列器所属ringBuffer的消费者序列集合
+     * （v2版本简单起见，先不和disruptor一样用数组+unsafe来实现）
      * */
-    private MySequence consumerSequence;
+    private final List<MySequence> gatingConsumerSequenceList = new ArrayList<>();
 
     private final MyWaitStrategy myWaitStrategy;
 
@@ -79,8 +84,8 @@ public class MySingleProducerSequencer {
             long minSequence;
 
             // 当生产者发现确实当前已经超过了一圈，则必须去读最新的消费者序列了，看看消费者的消费进度是否推进了
-            // 这里的consumerSequence.get是对volatile变量的读，是实时的、强一致的读
-            while(wrapPoint > (minSequence = consumerSequence.get())){
+            // 这里的getMinimumSequence方法中是对volatile变量的读，是实时的、强一致的读
+            while(wrapPoint > (minSequence = SequenceUtil.getMinimumSequence(nextProducerSequence, gatingConsumerSequenceList))){
                 // 如果确实超过了一圈，则生产者无法获取可用的队列空间，循环的间歇性park阻塞
                 LockSupport.parkNanos(1L);
             }
@@ -108,11 +113,15 @@ public class MySingleProducerSequencer {
     }
 
     public MySequenceBarrier newBarrier(){
-        return new MySequenceBarrier(this.currentProducerSequence,this.myWaitStrategy);
+        return new MySequenceBarrier(this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>());
     }
 
-    public void setConsumerSequence(MySequence consumerSequence){
-        this.consumerSequence = consumerSequence;
+    public MySequenceBarrier newBarrier(MySequence... dependenceSequences){
+        return new MySequenceBarrier(this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>(Arrays.asList(dependenceSequences)));
+    }
+
+    public void addGatingConsumerSequenceList(MySequence newGatingConsumerSequence){
+        this.gatingConsumerSequenceList.add(newGatingConsumerSequence);
     }
 
     public int getRingBufferSize() {

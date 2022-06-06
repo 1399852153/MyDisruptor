@@ -51,7 +51,7 @@ public class MyRingBuffer<T> {
     }
 
     public void setConsumerSequence(MySequence consumerSequence){
-        this.mySingleProducerSequencer.setConsumerSequence(consumerSequence);
+        this.mySingleProducerSequencer.setGatingConsumerSequenceList(consumerSequence);
     }
 
     public MySequenceBarrier newBarrier() {

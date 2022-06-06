@@ -1,8 +1,10 @@
 package mydisruptor.waitstrategy;
 
 import mydisruptor.MySequence;
-import mydisruptor.MySequenceBarrier;
+import mydisruptor.util.SequenceUtil;
+import mydisruptor.util.MyThreadHints;
 
+import java.util.List;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -16,7 +18,7 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
     private final Condition processorNotifyCondition = lock.newCondition();
 
     @Override
-    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence)
+    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, List<MySequence> dependentSequences)
             throws InterruptedException {
         // 强一致的读生产者序列号
         if (currentProducerSequence.get() < currentConsumeSequence) {
@@ -36,7 +38,21 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
         }
 
         // 跳出了上面的循环，说明生产者序列已经超过了当前所要消费的位点（currentProducerSequence > currentConsumeSequence）
-        return currentConsumeSequence;
+        long availableSequence;
+        if(!dependentSequences.isEmpty()){
+            // 受制于屏障中的dependentSequences，用来控制当前消费者消费进度不得超过其所依赖的链路上游的消费者进度
+            while ((availableSequence = SequenceUtil.getMinimumSequence(dependentSequences)) < currentConsumeSequence) {
+                // 由于消费者消费速度一般会很快，所以这里使用自旋阻塞来等待上游消费者进度推进（响应及时，且实现简单）
+
+                // 在jdk9开始引入的Thread.onSpinWait方法，优化自旋性能
+                MyThreadHints.onSpinWait();
+            }
+        }else{
+            // 并不存在依赖的上游消费者，大于当前消费进度的生产者序列就是可用的消费序列
+            availableSequence = currentProducerSequence.get();
+        }
+
+        return availableSequence;
     }
 
     @Override
