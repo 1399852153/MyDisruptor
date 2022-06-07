@@ -50,12 +50,16 @@ public class MyRingBuffer<T> {
         this.mySingleProducerSequencer.publish(index);
     }
 
-    public void setConsumerSequence(MySequence consumerSequence){
-        this.mySingleProducerSequencer.setGatingConsumerSequenceList(consumerSequence);
+    public void addGatingConsumerSequenceList(MySequence consumerSequence){
+        this.mySingleProducerSequencer.addGatingConsumerSequenceList(consumerSequence);
     }
 
     public MySequenceBarrier newBarrier() {
         return this.mySingleProducerSequencer.newBarrier();
+    }
+
+    public MySequenceBarrier newBarrier(MySequence... dependenceSequences) {
+        return this.mySingleProducerSequencer.newBarrier(dependenceSequences);
     }
 
     public static <E> MyRingBuffer<E> createSingleProducer(MyEventFactory<E> factory, int bufferSize, MyWaitStrategy waitStrategy) {
