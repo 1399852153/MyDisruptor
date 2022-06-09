@@ -1,11 +1,13 @@
 # MyDisruptor V2版本介绍
-在v1版本搭建好disruptor的地基，实现单生产者、单消费者后，按照既定计划，v2版本的MyDisruptor需要支持多消费者和允许设置消费者组间的依赖关系。
-v1版本解析的博客可以参考：lab1_blog.md
+在v1版本的MyDisruptor实现单生产者、单消费者功能后。按照计划，v2版本的MyDisruptor需要支持多消费者和允许设置消费者组间的依赖关系。
+#####
+由于该文属于系列博客的一部分，需要先对之前的博客内容有所了解才能更好地理解本篇博客
+* v1版本博客：[从零开始实现lmax-Disruptor队列（一）RingBuffer与单生产者、单消费者工作原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16318972.html)
 # MyDisruptor支持多消费者
-* disruptor中的生产者和消费者是互相制约的，生产者的生产速度不能过快，在逻辑上队列已满时需要阻塞等待消费者进行消费，直到队列不满。  
-* 而要支持多消费者，上述描述需要做一定的调整：即生产者的生产速度不能过快，在逻辑上队列已满时需要阻塞等待”**最慢的消费者**“完成消费，直到队列不满。  
+* disruptor中的生产者和消费者是互相制约的，生产者的生产速度不能过快，在逻辑上队列已满时需要阻塞等待消费者进行消费，直到队列不满。
+* 而要支持多消费者，上述描述需要做一定的调整：即生产者的生产速度不能过快，在逻辑上队列已满时需要阻塞等待”**最慢的消费者**“完成消费，直到队列不满。
 * disruptor中每个消费者都拥有自己的消费序列号，生产者在生产时需要保证生产的序列号不能覆盖任何一个消费者，即生产者的序列号不能超过最慢的消费者序列号一圈（Producer.Sequence - SlowestConsumer.Sequence <= ringBufferSize）  
-所以生产者需要维护一个消费者序列集合，在生产者生产时控制生产速度避免超过最慢的消费者而发生越界。
+  所以生产者需要维护一个消费者序列集合，在生产者生产时控制生产速度避免超过最慢的消费者而发生越界。
 ##### v2版本单线程生产者实现
 ```java
 package mydisruptor;
@@ -168,15 +170,15 @@ public class SequenceUtil {
     }
 }
 ```
-* v2版本生产者相对于v1版本的一个变化就是将维护的单一消费者序列consumerSequence变为了一个容纳多消费者序列的集合gatingConsumerSequenceList，并提供了动态新增消费者序列的接口addGatingConsumerSequenceList方法。  
-* 在申请可用生产序列号的方法next中，判断是否越界的条件也由v1版本的wrapPoint > consumerSequence,变成了wrapPoint > SequenceUtil.getMinimumSequence()
-* SequenceUtil.getMinimumSequence方法接收一个序列号集合和一个生产者序列号，返回其中的最小序列值。如果环绕越界点序列大于了返回的最小序列值，则说明所要申请的序列号已经越界了，需要等待最慢的消费者消费，令生产者阻塞。
+* v2版本生产者相对于v1版本的一个变化就是将维护的单一消费者序列consumerSequence变为了一个容纳多消费者序列的集合gatingConsumerSequenceList，并提供了动态新增消费者序列的接口addGatingConsumerSequenceList方法。
+* 在申请可用生产序列号的方法next中，判断是否越界的条件也由v1版本的wrapPoint > consumerSequence,变成了wrapPoint > SequenceUtil.getMinimumSequence()。
+* SequenceUtil.getMinimumSequence方法接收一个序列号集合和一个生产者序列号，返回其中的最小序列值。如果环绕越界点序列大于了返回的最小序列值，则说明所要申请的序列号已经越界了（快于最慢消费者一圈），需要等待最慢的消费者消费，令生产者阻塞。
 
 # MyDisruptor支持消费者组间消费依赖
-* v2版本中除了要支持多消费者，还需要支持消费者的组间消费依赖，例如有三个消费者A、B、C，消费依赖关系为A/B -> C, 即对于生产者发布的任意一个事件在AB消费成功后C才能进行消费（A，B之间的消费顺序不控制） 
-* 消费者的组间消费依赖关系可以很复杂(但不能存在循环依赖） 
-  ![消费者组间依赖关系图示例.png](消费者组间依赖关系图示例.png)
+* v2版本中除了要支持多消费者，还需要支持消费者的组间消费依赖，例如有三个消费者A、B、C，消费依赖关系为A/B -> C, 即对于生产者发布的任意一个事件在AB消费成功后C才能进行消费（A，B之间的消费顺序不限制）。
+* 消费者的组间消费依赖关系可以很复杂(但不能存在循环依赖）。
 * **要实现消费者间的依赖，关键思路是让每个消费者维护其上游消费者的序列，在消费时控制所消费的序列号不大于上游所依赖的最慢的消费者**。
+  ![](https://img2022.cnblogs.com/blog/1506329/202206/1506329-20220609212440430-420049778.png)
 ```java
 /**
  * 序列栅栏（仿Disruptor.SequenceBarrier）
@@ -263,11 +265,166 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
 }
 ```
 * v2版本中，控制消费者消费速度的组件,MySequenceBarrier序列屏障中除了需要维护生产者的序列号，避免消费越界外，还新增了一个List类型的成员变量dependentSequencesList用于维护所依赖的上游的一至多个消费者的序列号对象。
-* 获取可用的最大消费者序列号方法MyWaitStrategy.waitFor也新传入了依赖的上游消费者序列集合，用于控制返回的最大可消费序列号不会大于上游最慢的消费者序列
-* 在阻塞等待策略MyBlockingWaitStrategy中，和等待生产者生产时的策略不同，等待上游最慢消费者消费时并不是通过Condition.await方法令线程陷入阻塞态，而是while自旋等待  
-  这是因为距离生产者地下一次生产间隔是不可预知的，有可能会长时间等待；比起自旋，阻塞等待可以极大地减少对CPU资源的消耗。而上游消费者的消费速度一般很快，生产者生产到上游消费者消费完之间的时间间隔会很短，所以使用自旋来实现消费者间的消费依赖  
-  **注意**：正是因为在消费者的实现中假设了上游消费者的消费速度是很快的。所以在实际使用时，用户自定义的消费逻辑中不应该出现耗时的操作（考虑异步化），否则将可能导致下游的消费者陷入长时间的自旋中浪费大量的CPU资源
+* 获取可用的最大消费者序列号方法MyWaitStrategy.waitFor方法也新增参数传入依赖的上游消费者序列集合，用于控制返回的最大可消费序列号不会大于上游最慢的消费者序列。
+* 在阻塞等待策略MyBlockingWaitStrategy中，和等待生产者生产时的策略不同，等待上游最慢消费者消费时并不是通过Condition.await方法令线程陷入阻塞态，而是while自旋等待。  
+  这是因为生产者地下一次生产是不可预知的，有可能会长时间等待；比起自旋，阻塞等待可以极大地减少对CPU资源的消耗。而上游消费者的消费速度则一般很快，生产者生产到上游消费者消费完之间的时间间隔会很短，所以使用自旋来实现消费者间的消费依赖  
+  **注意**：正是因为在消费者的实现中假设了上游消费者的“理论”消费速度是很快的。所以在实际使用时，用户自定义的消费逻辑中不应该出现耗时的操作（考虑异步化），否则将可能导致下游的消费者陷入长时间的自旋中浪费大量的CPU资源
 ### MyThreadHints.onSpinWait分析
-  todo 
+在waitFor方法中自旋并不是简单的空循环，而是调用了MyThreadHints.onSpinWait方法。
+```java
+/**
+ * 启发性的查询是否存在Thread.onSpinWait方法，如果有则可以调用，如果没有则执行空逻辑
+ *
+ * 兼容老版本无该方法的jdk（Thread.onSpinWait是jdk9开始引入的）
+ * */
+public class MyThreadHints {
+
+    private static final MethodHandle ON_SPIN_WAIT_METHOD_HANDLE;
+
+    static {
+        final MethodHandles.Lookup lookup = MethodHandles.lookup();
+
+        MethodHandle methodHandle = null;
+        try {
+            methodHandle = lookup.findStatic(Thread.class, "onSpinWait", methodType(void.class));
+        } catch (final Exception ignore) {
+            // jdk9才引入的Thread.onSpinWait, 低版本没找到该方法直接忽略异常即可
+        }
+
+        ON_SPIN_WAIT_METHOD_HANDLE = methodHandle;
+    }
+
+    public static void onSpinWait() {
+        // Call java.lang.Thread.onSpinWait() on Java SE versions that support it. Do nothing otherwise.
+        // This should optimize away to either nothing or to an inlining of java.lang.Thread.onSpinWait()
+        if (null != ON_SPIN_WAIT_METHOD_HANDLE) {
+            try {
+                // 如果是高版本jdk找到了Thread.onSpinWait方法，则进行调用, 插入特殊指令优化CPU自旋性能（例如x86架构中的pause汇编指令）
+                // invokeExact比起反射调用方法要高一些，详细的原因待研究
+                ON_SPIN_WAIT_METHOD_HANDLE.invokeExact();
+            }
+            catch (final Throwable ignore) {
+                // 异常无需考虑
+            }
+        }
+    }
+}
+```
+* MyThreadHints内部在static块中通过MethodHandles尝试着获取Thread类的静态方法onSpinWait。这一方法在jdk9中被引入，因此在包括jdk8在内的低版本jdk中，都无法找到该方法，初始化完后ON_SPIN_WAIT_METHOD_HANDLE会是null。
+* jdk7开始引入的MethodHandles中，由于提前进行了很多的合法性检查，比常见的反射调用方式效率要高一些（但比起反射缺失了一些好用的功能）。所以在追求极致性能的disruptor中，用于自旋中的逻辑自然选择了效率更高的MethodHandles。
+* jdk9开始引入的Thread.onSpinWait中，一般是执行特殊的汇编指令用于告诉CPU当前方法处于无意义的自旋等待中，让CPU进行一定的优化。具体的实现主要取决于底层具体的硬件平台类型，如x86架构下是pause指令。
+  关于pause指令优化CPU自旋性能损耗的原理涉及到过多的硬件知识，限于个人水平就不再展开了。
 # MyDisruptor v2版本demo解析
+v2版本支持了多生产者和消费者组间消费依赖的功能，下面通过一个稍显复杂的demo来展示如何使用这些功能。
+```java
+public class MyRingBufferV2Demo {
+
+    /**
+     * 树形依赖关系
+     * A，B->C->E
+     *    ->D->F,G
+     * */
+    public static void main(String[] args) throws InterruptedException {
+        // 环形队列容量为16（2的4次方）
+        int ringBufferSize = 16;
+
+        // 创建环形队列
+        MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createSingleProducer(
+                new OrderEventProducer(), ringBufferSize, new MyBlockingWaitStrategy());
+
+        // 获得ringBuffer的序列屏障（最上游的序列屏障内只维护生产者的序列）
+        MySequenceBarrier mySequenceBarrier = myRingBuffer.newBarrier();
+
+        // ================================== 基于生产者序列屏障，创建消费者A
+        MyBatchEventProcessor<OrderEventModel> eventProcessorA =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerA"), mySequenceBarrier);
+        MySequence consumeSequenceA = eventProcessorA.getCurrentConsumeSequence();
+        // RingBuffer监听消费者A的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceA);
+
+        // ================================== 基于生产者序列屏障，创建消费者B
+        MyBatchEventProcessor<OrderEventModel> eventProcessorB =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerB"), mySequenceBarrier);
+        MySequence consumeSequenceB = eventProcessorB.getCurrentConsumeSequence();
+        // RingBuffer监听消费者B的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceB);
+
+        // ================================== 消费者C依赖上游的消费者A，B，通过消费者A、B的序列号创建序列屏障（构成消费的顺序依赖）
+        MySequenceBarrier mySequenceBarrierC = myRingBuffer.newBarrier(consumeSequenceA,consumeSequenceB);
+        // 基于序列屏障，创建消费者C
+        MyBatchEventProcessor<OrderEventModel> eventProcessorC =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerC"), mySequenceBarrierC);
+        MySequence consumeSequenceC = eventProcessorC.getCurrentConsumeSequence();
+        // RingBuffer监听消费者C的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceC);
+
+        // ================================== 消费者E依赖上游的消费者C，通过消费者C的序列号创建序列屏障（构成消费的顺序依赖）
+        MySequenceBarrier mySequenceBarrierE = myRingBuffer.newBarrier(consumeSequenceC);
+        // 基于序列屏障，创建消费者E
+        MyBatchEventProcessor<OrderEventModel> eventProcessorE =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerE"), mySequenceBarrierE);
+        MySequence consumeSequenceE = eventProcessorE.getCurrentConsumeSequence();
+        // RingBuffer监听消费者E的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceE);
+
+        // ================================== 消费者D依赖上游的消费者A,B，通过消费者A、B的序列号创建序列屏障（构成消费的顺序依赖）
+        MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(consumeSequenceA,consumeSequenceB);
+        // 基于序列屏障，创建消费者D
+        MyBatchEventProcessor<OrderEventModel> eventProcessorD =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
+        MySequence consumeSequenceD = eventProcessorD.getCurrentConsumeSequence();
+        // RingBuffer监听消费者D的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
+
+        // ================================== 消费者F依赖上游的消费者D，通过消费者D的序列号创建序列屏障（构成消费的顺序依赖）
+        MySequenceBarrier mySequenceBarrierF = myRingBuffer.newBarrier(consumeSequenceD);
+        // 基于序列屏障，创建消费者F
+        MyBatchEventProcessor<OrderEventModel> eventProcessorF =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerF"), mySequenceBarrierF);
+        MySequence consumeSequenceF = eventProcessorF.getCurrentConsumeSequence();
+        // RingBuffer监听消费者F的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceF);
+
+        // ================================== 消费者G依赖上游的消费者D，通过消费者D的序列号创建序列屏障（构成消费的顺序依赖）
+        MySequenceBarrier mySequenceBarrierG = myRingBuffer.newBarrier(consumeSequenceD);
+        // 基于序列屏障，创建消费者G
+        MyBatchEventProcessor<OrderEventModel> eventProcessorG =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerG"), mySequenceBarrierG);
+        MySequence consumeSequenceG = eventProcessorG.getCurrentConsumeSequence();
+        // RingBuffer监听消费者G的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceG);
+
+        // 启动消费者线程
+        new Thread(eventProcessorA).start();
+        new Thread(eventProcessorB).start();
+        new Thread(eventProcessorC).start();
+        new Thread(eventProcessorD).start();
+        new Thread(eventProcessorE).start();
+        new Thread(eventProcessorF).start();
+        new Thread(eventProcessorG).start();
+
+        // 生产者发布100个事件
+        for(int i=0; i<100; i++) {
+            long nextIndex = myRingBuffer.next();
+            OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
+            orderEvent.setMessage("message-"+i);
+            orderEvent.setPrice(i * 10);
+            System.out.println("生产者发布事件：" + orderEvent);
+            myRingBuffer.publish(nextIndex);
+        }
+
+        // 简单阻塞下，避免还未消费完主线程退出
+        Thread.sleep(5000L);
+    }
+}
+```
+* 最上游的的消费者在创建时传入的序列屏障内只维护了生产者序列（myRingBuffer.newBarrier()）。
+* 存在上游依赖的消费者在创建时，其传入的序列屏障内需要维护直接依赖的上游消费者的序列号集合（即dependentSequencesList）用于控制消费速度不超过上游消费者。
+* 每个新创建的消费者都需要通过ringBuffer.addGatingConsumerSequenceList接口将自己的序列号维护到生产者的gatingConsumerSequenceList中，令生产者生产时不会越过最慢的消费者一圈。
 # 总结
+* 比起v1版本的MyDisruptor，v2版本在做了较小的改动后就支持了**多消费者**和**消费者的组间消费依赖**功能。
+* 通过小步快跑，逐步迭代的方式一点点的实现MyDisruptor并进行解析，希望可以让读者在一个更低复杂度的代码实现中更好的理解lmax-disruptor队列中的精妙设计。
+#####
+disruptor无论在整体设计还是最终代码实现上都有很多值得反复琢磨和学习的细节，希望能帮助到对disruptor感兴趣的小伙伴。
+#####
+本篇博客的完整代码在我的github上：https://github.com/1399852153/MyDisruptor 分支：feature/lab2
