@@ -1,7 +1,7 @@
 package mydisruptor.api;
 
 /**
- * 事件处理器接口
+ * 单线程消费者-事件处理器接口
  * */
 public interface MyEventHandler<T> {
 

@@ -1,23 +1,23 @@
 package mydisruptor;
 
 
-import mydisruptor.api.MyEventHandler;
+import mydisruptor.api.MyWorkHandler;
 
 public class MyWorkProcessor<T> implements Runnable,MyEventProcessor{
 
     private final MySequence currentConsumeSequence = new MySequence(-1);
     private final MyRingBuffer<T> myRingBuffer;
-    private final MyEventHandler<T> myEventHandler;
+    private final MyWorkHandler<T> myWorkHandler;
     private final MySequenceBarrier sequenceBarrier;
     private final MySequence workGroupSequence;
 
 
     public MyWorkProcessor(MyRingBuffer<T> myRingBuffer,
-                                MyEventHandler<T> myEventHandler,
+                           MyWorkHandler<T> myWorkHandler,
                                 MySequenceBarrier sequenceBarrier,
                                 MySequence workGroupSequence) {
         this.myRingBuffer = myRingBuffer;
-        this.myEventHandler = myEventHandler;
+        this.myWorkHandler = myWorkHandler;
         this.sequenceBarrier = sequenceBarrier;
         this.workGroupSequence = workGroupSequence;
     }
@@ -45,6 +45,9 @@ public class MyWorkProcessor<T> implements Runnable,MyEventProcessor{
                         // 即当前worker的消费序列currentConsumeSequence = 当前消费者组的序列workGroupSequence
                         this.currentConsumeSequence.lazySet(nextConsumerIndex - 1L);
                         // 问题：只使用workGroupSequence，每个worker不维护currentConsumeSequence行不行？
+                        // 回答：这是不行的。因为和单线程消费者的行为一样，都是具体的消费者eventHandler/workHandler执行过之后才更新消费者的序列号，令其对外部可见（生产者、下游消费者）
+                        // 因为消费依赖关系中约定，对于序列i事件只有在上游的消费者消费过后（eventHandler/workHandler执行过），下游才能消费序列i的事件
+                        // workGroupSequence主要是用于通过cas协调同一workerPool内消费者线程序列争抢的，对外的约束依然需要workProcessor本地的消费者序列currentConsumeSequence来控制
 
                         // cas更新，保证每个worker线程都会获取到唯一的一个sequence
                     } while (!workGroupSequence.compareAndSet(nextConsumerIndex - 1L, nextConsumerIndex));
@@ -67,7 +70,7 @@ public class MyWorkProcessor<T> implements Runnable,MyEventProcessor{
 
                     // 取出可以消费的下标对应的事件，交给eventConsumer消费
                     T event = myRingBuffer.get(nextConsumerIndex);
-                    this.myEventHandler.consume(event, nextConsumerIndex, false);
+                    this.myWorkHandler.consume(event);
 
                     // 实际调用消费者进行消费了，标记为true.这样一来就可以在下次循环中cas争抢下一个新的消费序列了
                     processedSequence = true;

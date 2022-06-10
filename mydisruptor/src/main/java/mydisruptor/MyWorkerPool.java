@@ -1,6 +1,7 @@
 package mydisruptor;
 
 import mydisruptor.api.MyEventHandler;
+import mydisruptor.api.MyWorkHandler;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,14 +19,14 @@ public class MyWorkerPool<T> {
     public MyWorkerPool(
             final MyRingBuffer<T> myRingBuffer,
             final MySequenceBarrier sequenceBarrier,
-            final List<MyEventHandler<T>> myEventConsumerList) {
+            final List<MyWorkHandler<T>> myWorkHandlerList) {
 
         this.myRingBuffer = myRingBuffer;
-        final int numWorkers = myEventConsumerList.size();
+        final int numWorkers = myWorkHandlerList.size();
         this.workEventProcessorList = new ArrayList<>(numWorkers);
 
         // 为每个自定义事件消费逻辑MyEventHandler，创建一个对应的MyWorkProcessor去处理
-        for (MyEventHandler<T> myEventConsumer : myEventConsumerList) {
+        for (MyWorkHandler<T> myEventConsumer : myWorkHandlerList) {
             workEventProcessorList.add(new MyWorkProcessor<>(
                     myRingBuffer,
                     myEventConsumer,
