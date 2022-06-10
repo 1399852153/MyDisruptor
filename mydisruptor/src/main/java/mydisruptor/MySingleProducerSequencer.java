@@ -124,6 +124,10 @@ public class MySingleProducerSequencer {
         this.gatingConsumerSequenceList.add(newGatingConsumerSequence);
     }
 
+    public MySequence getCurrentProducerSequence() {
+        return currentProducerSequence;
+    }
+
     public int getRingBufferSize() {
         return ringBufferSize;
     }

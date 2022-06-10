@@ -51,4 +51,8 @@ public class MySequence {
         UNSAFE.putOrderedLong(this, VALUE_OFFSET, value);
     }
 
+    public boolean compareAndSet(long expect, long update){
+        return UNSAFE.compareAndSwapLong(this, VALUE_OFFSET, expect, update);
+    }
+
 }

@@ -38,6 +38,10 @@ public class MyRingBuffer<T> {
         return elementList[index];
     }
 
+    public MySequence getCurrentProducerSequence(){
+        return this.mySingleProducerSequencer.getCurrentProducerSequence();
+    }
+
     public long next(){
         return this.mySingleProducerSequencer.next();
     }
