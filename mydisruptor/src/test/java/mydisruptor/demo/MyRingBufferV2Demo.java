@@ -1,6 +1,6 @@
 package mydisruptor.demo;
 
-import mydisruptor.MyBatchMyEventProcessor;
+import mydisruptor.MyBatchEventProcessor;
 import mydisruptor.MyRingBuffer;
 import mydisruptor.MySequence;
 import mydisruptor.MySequenceBarrier;
@@ -27,15 +27,15 @@ public class MyRingBufferV2Demo {
         MySequenceBarrier mySequenceBarrier = myRingBuffer.newBarrier();
 
         // ================================== 基于生产者序列屏障，创建消费者A
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessorA =
-                new MyBatchMyEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerA"), mySequenceBarrier);
+        MyBatchEventProcessor<OrderEventModel> eventProcessorA =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerA"), mySequenceBarrier);
         MySequence consumeSequenceA = eventProcessorA.getCurrentConsumeSequence();
         // RingBuffer监听消费者A的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceA);
 
         // ================================== 基于生产者序列屏障，创建消费者B
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessorB =
-                new MyBatchMyEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerB"), mySequenceBarrier);
+        MyBatchEventProcessor<OrderEventModel> eventProcessorB =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerB"), mySequenceBarrier);
         MySequence consumeSequenceB = eventProcessorB.getCurrentConsumeSequence();
         // RingBuffer监听消费者B的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceB);
@@ -43,8 +43,8 @@ public class MyRingBufferV2Demo {
         // ================================== 消费者C依赖上游的消费者A，B，通过消费者A、B的序列号创建序列屏障（构成消费的顺序依赖）
         MySequenceBarrier mySequenceBarrierC = myRingBuffer.newBarrier(consumeSequenceA,consumeSequenceB);
         // 基于序列屏障，创建消费者C
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessorC =
-                new MyBatchMyEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerC"), mySequenceBarrierC);
+        MyBatchEventProcessor<OrderEventModel> eventProcessorC =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerC"), mySequenceBarrierC);
         MySequence consumeSequenceC = eventProcessorC.getCurrentConsumeSequence();
         // RingBuffer监听消费者C的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceC);
@@ -52,8 +52,8 @@ public class MyRingBufferV2Demo {
         // ================================== 消费者E依赖上游的消费者C，通过消费者C的序列号创建序列屏障（构成消费的顺序依赖）
         MySequenceBarrier mySequenceBarrierE = myRingBuffer.newBarrier(consumeSequenceC);
         // 基于序列屏障，创建消费者E
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessorE =
-                new MyBatchMyEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerE"), mySequenceBarrierE);
+        MyBatchEventProcessor<OrderEventModel> eventProcessorE =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerE"), mySequenceBarrierE);
         MySequence consumeSequenceE = eventProcessorE.getCurrentConsumeSequence();
         // RingBuffer监听消费者E的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceE);
@@ -61,8 +61,8 @@ public class MyRingBufferV2Demo {
         // ================================== 消费者D依赖上游的消费者A,B，通过消费者A、B的序列号创建序列屏障（构成消费的顺序依赖）
         MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(consumeSequenceA,consumeSequenceB);
         // 基于序列屏障，创建消费者D
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessorD =
-                new MyBatchMyEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
+        MyBatchEventProcessor<OrderEventModel> eventProcessorD =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
         MySequence consumeSequenceD = eventProcessorD.getCurrentConsumeSequence();
         // RingBuffer监听消费者D的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
@@ -70,8 +70,8 @@ public class MyRingBufferV2Demo {
         // ================================== 消费者F依赖上游的消费者D，通过消费者D的序列号创建序列屏障（构成消费的顺序依赖）
         MySequenceBarrier mySequenceBarrierF = myRingBuffer.newBarrier(consumeSequenceD);
         // 基于序列屏障，创建消费者F
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessorF =
-                new MyBatchMyEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerF"), mySequenceBarrierF);
+        MyBatchEventProcessor<OrderEventModel> eventProcessorF =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerF"), mySequenceBarrierF);
         MySequence consumeSequenceF = eventProcessorF.getCurrentConsumeSequence();
         // RingBuffer监听消费者F的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceF);
@@ -79,8 +79,8 @@ public class MyRingBufferV2Demo {
         // ================================== 消费者G依赖上游的消费者D，通过消费者D的序列号创建序列屏障（构成消费的顺序依赖）
         MySequenceBarrier mySequenceBarrierG = myRingBuffer.newBarrier(consumeSequenceD);
         // 基于序列屏障，创建消费者G
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessorG =
-                new MyBatchMyEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerG"), mySequenceBarrierG);
+        MyBatchEventProcessor<OrderEventModel> eventProcessorG =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerG"), mySequenceBarrierG);
         MySequence consumeSequenceG = eventProcessorG.getCurrentConsumeSequence();
         // RingBuffer监听消费者G的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceG);

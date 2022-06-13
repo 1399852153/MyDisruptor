@@ -34,8 +34,8 @@ public class MyRingBufferTest {
 
         MySequenceBarrier mySequenceBarrier = myRingBuffer.newBarrier();
         // 消费者1
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessor1 =
-                new MyBatchMyEventProcessor<>(myRingBuffer,
+        MyBatchEventProcessor<OrderEventModel> eventProcessor1 =
+                new MyBatchEventProcessor<>(myRingBuffer,
                         new OrderEventConsumer(produceCount),mySequenceBarrier);
         MySequence consumeSequence = eventProcessor1.getCurrentConsumeSequence();
         // ringBuffer监听消费者1的消费者序列
@@ -43,8 +43,8 @@ public class MyRingBufferTest {
 
         // 消费者2依赖消费者1，所以基于消费者1的sequence生成barrier
         MySequenceBarrier step2Barrier = myRingBuffer.newBarrier(consumeSequence);
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessor2 =
-                new MyBatchMyEventProcessor<>(myRingBuffer,
+        MyBatchEventProcessor<OrderEventModel> eventProcessor2 =
+                new MyBatchEventProcessor<>(myRingBuffer,
                         new OrderEventConsumer(produceCount),step2Barrier);
         MySequence consumeSequence2 = eventProcessor2.getCurrentConsumeSequence();
         // ringBuffer监听消费者2的消费者序列
@@ -52,8 +52,8 @@ public class MyRingBufferTest {
 
         // 消费者3依赖消费者2，所以基于消费者2的sequence生成barrier
         MySequenceBarrier step3Barrier = myRingBuffer.newBarrier(consumeSequence2);
-        MyBatchMyEventProcessor<OrderEventModel> eventProcessor3 =
-                new MyBatchMyEventProcessor<>(myRingBuffer,
+        MyBatchEventProcessor<OrderEventModel> eventProcessor3 =
+                new MyBatchEventProcessor<>(myRingBuffer,
                         new OrderEventConsumer(produceCount),step3Barrier);
         MySequence consumeSequence3 = eventProcessor3.getCurrentConsumeSequence();
         // ringBuffer监听消费者3的消费者序列
