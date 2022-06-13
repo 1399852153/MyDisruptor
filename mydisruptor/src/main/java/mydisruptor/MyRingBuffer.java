@@ -58,6 +58,10 @@ public class MyRingBuffer<T> {
         this.mySingleProducerSequencer.addGatingConsumerSequenceList(consumerSequence);
     }
 
+    public void addGatingConsumerSequenceList(MySequence... consumerSequences){
+        this.mySingleProducerSequencer.addGatingConsumerSequenceList(consumerSequences);
+    }
+
     public MySequenceBarrier newBarrier() {
         return this.mySingleProducerSequencer.newBarrier();
     }

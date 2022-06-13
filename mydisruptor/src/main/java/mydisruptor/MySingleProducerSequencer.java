@@ -124,6 +124,10 @@ public class MySingleProducerSequencer {
         this.gatingConsumerSequenceList.add(newGatingConsumerSequence);
     }
 
+    public void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences){
+        this.gatingConsumerSequenceList.addAll(Arrays.asList(newGatingConsumerSequences));
+    }
+
     public MySequence getCurrentProducerSequence() {
         return currentProducerSequence;
     }
