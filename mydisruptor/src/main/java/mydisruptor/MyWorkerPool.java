@@ -1,6 +1,5 @@
 package mydisruptor;
 
-import mydisruptor.api.MyEventHandler;
 import mydisruptor.api.MyWorkHandler;
 
 import java.util.ArrayList;
@@ -17,9 +16,9 @@ public class MyWorkerPool<T> {
     private final List<MyWorkProcessor<T>> workEventProcessorList;
 
     public MyWorkerPool(
-            final MyRingBuffer<T> myRingBuffer,
-            final MySequenceBarrier sequenceBarrier,
-            final MyWorkHandler<T>... myWorkHandlerList) {
+            MyRingBuffer<T> myRingBuffer,
+            MySequenceBarrier mySequenceBarrier,
+            MyWorkHandler<T>... myWorkHandlerList) {
 
         this.myRingBuffer = myRingBuffer;
         final int numWorkers = myWorkHandlerList.length;
@@ -30,7 +29,7 @@ public class MyWorkerPool<T> {
             workEventProcessorList.add(new MyWorkProcessor<>(
                     myRingBuffer,
                     myEventConsumer,
-                    sequenceBarrier,
+                    mySequenceBarrier,
                     this.workSequence));
         }
     }

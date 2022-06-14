@@ -3,7 +3,10 @@ package mydisruptor;
 
 import mydisruptor.api.MyWorkHandler;
 
-public class MyWorkProcessor<T> implements Runnable,MyEventProcessor{
+/**
+ * 多线程消费者工作线程 （仿Disruptor.WorkProcessor）
+ * */
+public class MyWorkProcessor<T> implements Runnable{
 
     private final MySequence currentConsumeSequence = new MySequence(-1);
     private final MyRingBuffer<T> myRingBuffer;
@@ -22,7 +25,6 @@ public class MyWorkProcessor<T> implements Runnable,MyEventProcessor{
         this.workGroupSequence = workGroupSequence;
     }
 
-    @Override
     public MySequence getCurrentConsumeSequence() {
         return currentConsumeSequence;
     }
@@ -30,6 +32,7 @@ public class MyWorkProcessor<T> implements Runnable,MyEventProcessor{
     @Override
     public void run() {
         long nextConsumerIndex = this.currentConsumeSequence.get() + 1;
+        // 设置哨兵值，保证第一次循环时nextConsumerIndex <= cachedAvailableSequence一定为false，走else分支通过序列屏障获得最大的可用序列号
         long cachedAvailableSequence = Long.MIN_VALUE;
 
         // 最近是否处理过了序列
