@@ -420,9 +420,6 @@ public class MyRingBufferV2Demo {
             System.out.println("生产者发布事件：" + orderEvent);
             myRingBuffer.publish(nextIndex);
         }
-
-        // 简单阻塞下，避免还未消费完主线程退出
-        Thread.sleep(5000L);
     }
 }
 ```

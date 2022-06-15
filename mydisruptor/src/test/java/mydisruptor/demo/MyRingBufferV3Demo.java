@@ -67,7 +67,6 @@ public class MyRingBufferV3Demo {
         bAndCSequenceArr[bAndCSequenceArr.length-1] = consumeSequenceC;
         MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(bAndCSequenceArr);
 
-//        MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(consumeSequenceC);
         MyBatchEventProcessor<OrderEventModel> eventProcessorD =
                 new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
         MySequence consumeSequenceD = eventProcessorD.getCurrentConsumeSequence();
@@ -76,65 +75,31 @@ public class MyRingBufferV3Demo {
 
 
         // 启动消费者线程A
-        Thread ta = new Thread(eventProcessorA);
-        ta.start();
+        new Thread(eventProcessorA).start();
 
-        ExecutorService executorService = Executors.newFixedThreadPool(100, new ThreadFactory() {
+        // 启动workerPool多线程消费者B
+        workerPoolProcessorB.start(Executors.newFixedThreadPool(100, new ThreadFactory() {
             private final AtomicInteger mCount = new AtomicInteger(1);
 
             @Override
             public Thread newThread(Runnable r) {
                 return new Thread(r,"worker" + mCount.getAndIncrement());
             }
-        });
-        // 启动workerPool多线程消费者B
-        workerPoolProcessorB.start(executorService);
+        }));
 
         // 启动消费者线程C
-        Thread tc = new Thread(eventProcessorC);
-        tc.start();
-
+        new Thread(eventProcessorC).start();
         // 启动消费者线程D
-        Thread td = new Thread(eventProcessorD);
-        td.start();
+        new Thread(eventProcessorD).start();
 
-        CountDownLatch countDownLatch = new CountDownLatch(1);
-        Thread producerThread = new Thread(
-                ()->{
-                    // 生产者发布100个事件
-                    for(int i=0; i<100; i++) {
-                        long nextIndex = myRingBuffer.next();
-                        OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
-                        orderEvent.setMessage("message-"+i);
-                        orderEvent.setPrice(i * 10);
-                        System.out.println("生产者发布事件：" + orderEvent);
-                        myRingBuffer.publish(nextIndex);
-                    }
-
-                    System.out.println("生产者生产完毕");
-                    countDownLatch.countDown();
-                }
-        );
-        producerThread.start();
-
-        countDownLatch.await();
-        producerThread.stop();
-
-        // 简单阻塞下，避免lazySet导致未消费完
-        Thread.sleep(5000L);
-
-        ta.stop();
-        System.out.println("关闭消费者a");
-        Thread.sleep(5000L);
-//        executorService.shutdown();
-//        System.out.println("关闭消费者组b");
-//        Thread.sleep(5000L);
-//        tc.stop();
-//        System.out.println("关闭消费者c");
-//        Thread.sleep(5000L);
-//        td.stop();
-//        System.out.println("关闭消费者d");
-
-        System.out.println("关闭所有消费者完毕");
+        // 生产者发布100个事件
+        for(int i=0; i<100; i++) {
+            long nextIndex = myRingBuffer.next();
+            OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
+            orderEvent.setMessage("message-"+i);
+            orderEvent.setPrice(i * 10);
+            System.out.println("生产者发布事件：" + orderEvent);
+            myRingBuffer.publish(nextIndex);
+        }
     }
 }

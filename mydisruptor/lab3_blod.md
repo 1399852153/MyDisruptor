@@ -200,7 +200,7 @@ public class MyRingBufferV3Demo {
      * */
     public static void main(String[] args) throws InterruptedException {
         // 环形队列容量为16（2的4次方）
-        int ringBufferSize = 16;
+        int ringBufferSize = 4;
 
         // 创建环形队列
         MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createSingleProducer(
@@ -251,10 +251,12 @@ public class MyRingBufferV3Demo {
         // RingBuffer监听消费者D的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
 
+
         // 启动消费者线程A
         new Thread(eventProcessorA).start();
+
         // 启动workerPool多线程消费者B
-        workerPoolProcessorB.start(Executors.newFixedThreadPool(3, new ThreadFactory() {
+        workerPoolProcessorB.start(Executors.newFixedThreadPool(100, new ThreadFactory() {
             private final AtomicInteger mCount = new AtomicInteger(1);
 
             @Override
@@ -262,6 +264,7 @@ public class MyRingBufferV3Demo {
                 return new Thread(r,"worker" + mCount.getAndIncrement());
             }
         }));
+
         // 启动消费者线程C
         new Thread(eventProcessorC).start();
         // 启动消费者线程D
@@ -276,17 +279,12 @@ public class MyRingBufferV3Demo {
             System.out.println("生产者发布事件：" + orderEvent);
             myRingBuffer.publish(nextIndex);
         }
-
-        // 简单阻塞下，避免还未消费完主线程退出
-        Thread.sleep(5000L);
-        System.out.println("生产者生产完毕");
     }
 }
 ```
 * WorkPool对外直接面向用户，而WorkProcessor则被封装隐藏起来，对用户是不可见的。
 * WorkPool作为一个消费者有着自己的消费序列，也是通过往ringBuffer的生产者中注册**消费序列**限制生产速度；让下游消费者维护**消费序列**实现上下游依赖关系的。  
   但WorkPool是多线程的，其消费序列是一个包含WorkPool总序列号和各个子线程内序列号的集合。因此在上述场景中，需要将这个集合（数组）视为一个整体维护起来。
-*  
 
 # 总结
 todo 待补充

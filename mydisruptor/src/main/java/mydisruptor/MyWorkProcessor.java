@@ -2,7 +2,6 @@ package mydisruptor;
 
 
 import mydisruptor.api.MyWorkHandler;
-import mydisruptor.util.LogUtil;
 
 /**
  * 多线程消费者工作线程 （仿Disruptor.WorkProcessor）
