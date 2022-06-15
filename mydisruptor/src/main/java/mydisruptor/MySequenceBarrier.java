@@ -2,7 +2,6 @@ package mydisruptor;
 
 import mydisruptor.waitstrategy.MyWaitStrategy;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -23,6 +22,7 @@ public class MySequenceBarrier {
         if(!dependentSequencesList.isEmpty()) {
             this.dependentSequencesList = dependentSequencesList;
         }else{
+            // 如果传入的上游依赖序列为空，则生产者序列号作为兜底的依赖
             this.dependentSequencesList = Collections.singletonList(currentProducerSequence);
         }
     }
