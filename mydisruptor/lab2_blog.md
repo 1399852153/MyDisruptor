@@ -179,6 +179,7 @@ public class SequenceUtil {
 * 消费者的组间消费依赖关系可以很复杂(但不能存在循环依赖）。
 * **要实现消费者间的依赖，关键思路是让每个消费者维护其上游消费者的序列，在消费时控制所消费的序列号不大于上游所依赖的最慢的消费者**。
   ![](https://img2022.cnblogs.com/blog/1506329/202206/1506329-20220609212440430-420049778.png)
+
 ```java
 /**
  * 序列栅栏（仿Disruptor.SequenceBarrier）
@@ -194,6 +195,8 @@ public class MySequenceBarrier {
         this.currentProducerSequence = currentProducerSequence;
         this.myWaitStrategy = myWaitStrategy;
         this.dependentSequencesList = dependentSequencesList;
+        
+        
     }
 
     /**
@@ -204,7 +207,8 @@ public class MySequenceBarrier {
         return this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList);
     }
 }
-
+```
+```java
 /**
  * 阻塞等待策略
  * */
@@ -255,8 +259,8 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
     public void signalWhenBlocking() {
         lock.lock();
         try {
-            // signal唤醒所有阻塞在条件变量上的消费者线程（后续支持多消费者时，会改为signalAll）
-            processorNotifyCondition.signal();
+            // signalAll唤醒所有阻塞在条件变量上的消费者线程
+            processorNotifyCondition.signalAll();
         }
         finally {
             lock.unlock();
@@ -265,6 +269,7 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
 }
 ```
 * v2版本中，控制消费者消费速度的组件,MySequenceBarrier序列屏障中除了需要维护生产者的序列号，避免消费越界外，还新增了一个List类型的成员变量dependentSequencesList用于维护所依赖的上游的一至多个消费者的序列号对象。
+* signalWhenBlocking中，由于需要支持多消费者，因此唤醒操作要从v1版本的signal改为signalAll。
 * 获取可用的最大消费者序列号方法MyWaitStrategy.waitFor方法也新增参数传入依赖的上游消费者序列集合，用于控制返回的最大可消费序列号不会大于上游最慢的消费者序列。
 * 在阻塞等待策略MyBlockingWaitStrategy中，和等待生产者生产时的策略不同，等待上游最慢消费者消费时并不是通过Condition.await方法令线程陷入阻塞态，而是while自旋等待。  
   这是因为生产者地下一次生产是不可预知的，有可能会长时间等待；比起自旋，阻塞等待可以极大地减少对CPU资源的消耗。而上游消费者的消费速度则一般很快，生产者生产到上游消费者消费完之间的时间间隔会很短，所以使用自旋来实现消费者间的消费依赖  
