@@ -17,6 +17,7 @@ public class MyBusySpinWaitStrategy implements MyWaitStrategy{
             LogUtil.logWithThreadName("dependentSequences= "+ dependentSequences + "availableSequence=" + availableSequence);
             // 在jdk9开始引入的Thread.onSpinWait方法，优化自旋性能
             MyThreadHints.onSpinWait();
+            Thread.sleep(1000L);
         }
 
         return availableSequence;

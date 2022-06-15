@@ -32,7 +32,7 @@ public class MyWorkProcessor<T> implements Runnable{
 
     @Override
     public void run() {
-        long nextConsumerIndex = this.currentConsumeSequence.get() + 1;
+        long nextConsumerIndex = this.currentConsumeSequence.get();
         // 设置哨兵值，保证第一次循环时nextConsumerIndex <= cachedAvailableSequence一定为false，走else分支通过序列屏障获得最大的可用序列号
         long cachedAvailableSequence = Long.MIN_VALUE;
 
@@ -69,7 +69,7 @@ public class MyWorkProcessor<T> implements Runnable{
                 // 1 第一次循环，初始化为Long.MIN_VALUE，则必定会走到下面的else分支中
                 // 2 非第一次循环，则cachedAvailableSequence为序列屏障所允许的最大可消费序列
 
-                if (nextConsumerIndex <= cachedAvailableSequence) {
+                if (cachedAvailableSequence >= nextConsumerIndex) {
                     // 争抢到的消费序列是满足要求的（小于序列屏障值，被序列屏障允许的），则调用消费者进行实际的消费
 
                     // 取出可以消费的下标对应的事件，交给eventConsumer消费

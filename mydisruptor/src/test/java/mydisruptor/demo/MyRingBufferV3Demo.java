@@ -5,6 +5,7 @@ import mydisruptor.*;
 import mydisruptor.model.OrderEventModel;
 import mydisruptor.model.OrderEventProducer;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
+import mydisruptor.waitstrategy.MyBusySpinWaitStrategy;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -78,7 +79,7 @@ public class MyRingBufferV3Demo {
         Thread ta = new Thread(eventProcessorA);
         ta.start();
 
-        ExecutorService executorService = Executors.newFixedThreadPool(6, new ThreadFactory() {
+        ExecutorService executorService = Executors.newFixedThreadPool(100, new ThreadFactory() {
             private final AtomicInteger mCount = new AtomicInteger(1);
 
             @Override

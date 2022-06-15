@@ -23,6 +23,8 @@ public class MyBatchEventProcessor<T> implements Runnable {
 
     @Override
     public void run() {
+        currentConsumeSequence.ownerName = Thread.currentThread().getName();
+
         // 下一个需要消费的下标
         long nextConsumerIndex = currentConsumeSequence.get() + 1;
 

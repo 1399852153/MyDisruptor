@@ -57,6 +57,8 @@ public class MySequence {
 
     @Override
     public String toString() {
-        return Long.toString(get());
+        return Long.toString(get()) + " " + ownerName;
     }
+
+    public String ownerName;
 }
