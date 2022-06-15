@@ -60,7 +60,7 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
         lock.lock();
         try {
             // signal唤醒所有阻塞在条件变量上的消费者线程（后续支持多消费者时，会改为signalAll）
-            processorNotifyCondition.signal();
+            processorNotifyCondition.signalAll();
         }
         finally {
             lock.unlock();
