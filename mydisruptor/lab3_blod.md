@@ -123,6 +123,9 @@ public class MyWorkProcessor<T> implements Runnable{
         while (true) {
             try {
                 if(processedSequence) {
+                    // 争抢到了一个新的待消费序列，但还未实际进行消费（标记为false）
+                    processedSequence = false;
+                    
                     // 如果已经处理过序列，则重新cas的争抢一个新的待消费序列
                     do {
                         nextConsumerIndex = this.workGroupSequence.get() + 1L;
@@ -136,9 +139,6 @@ public class MyWorkProcessor<T> implements Runnable{
 
                         // cas更新，保证每个worker线程都会获取到唯一的一个sequence
                     } while (!workGroupSequence.compareAndSet(nextConsumerIndex - 1L, nextConsumerIndex));
-
-                    // 争抢到了一个新的待消费序列，但还未实际进行消费（标记为false）
-                    processedSequence = false;
                 }else{
                     // processedSequence == false(手头上存在一个还未消费的序列)
                     // 走到这里说明之前拿到了一个新的消费序列，但是由于nextConsumerIndex > cachedAvailableSequence，没有实际执行消费逻辑
