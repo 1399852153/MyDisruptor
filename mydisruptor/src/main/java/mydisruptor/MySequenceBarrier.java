@@ -2,6 +2,8 @@ package mydisruptor;
 
 import mydisruptor.waitstrategy.MyWaitStrategy;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -17,7 +19,12 @@ public class MySequenceBarrier {
                              MyWaitStrategy myWaitStrategy, List<MySequence> dependentSequencesList) {
         this.currentProducerSequence = currentProducerSequence;
         this.myWaitStrategy = myWaitStrategy;
-        this.dependentSequencesList = dependentSequencesList;
+
+        if(!dependentSequencesList.isEmpty()) {
+            this.dependentSequencesList = dependentSequencesList;
+        }else{
+            this.dependentSequencesList = Collections.singletonList(currentProducerSequence);
+        }
     }
 
     /**

@@ -6,13 +6,10 @@ import mydisruptor.model.OrderEventModel;
 import mydisruptor.model.OrderEventProducer;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MyRingBufferV3Demo {
@@ -24,7 +21,7 @@ public class MyRingBufferV3Demo {
      * */
     public static void main(String[] args) throws InterruptedException {
         // 环形队列容量为16（2的4次方）
-        int ringBufferSize = 16;
+        int ringBufferSize = 4;
 
         // 创建环形队列
         MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createSingleProducer(
@@ -69,11 +66,17 @@ public class MyRingBufferV3Demo {
         bAndCSequenceArr[bAndCSequenceArr.length-1] = consumeSequenceC;
         MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(bAndCSequenceArr);
 
+//        MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(consumeSequenceC);
         MyBatchEventProcessor<OrderEventModel> eventProcessorD =
                 new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
         MySequence consumeSequenceD = eventProcessorD.getCurrentConsumeSequence();
         // RingBuffer监听消费者D的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
+
+
+        // 启动消费者线程A
+        Thread ta = new Thread(eventProcessorA);
+        ta.start();
 
         ExecutorService executorService = Executors.newFixedThreadPool(6, new ThreadFactory() {
             private final AtomicInteger mCount = new AtomicInteger(1);
@@ -83,11 +86,6 @@ public class MyRingBufferV3Demo {
                 return new Thread(r,"worker" + mCount.getAndIncrement());
             }
         });
-
-        // 启动消费者线程A
-        Thread ta = new Thread(eventProcessorA);
-        ta.start();
-
         // 启动workerPool多线程消费者B
         workerPoolProcessorB.start(executorService);
 
@@ -126,15 +124,15 @@ public class MyRingBufferV3Demo {
 
         ta.stop();
         System.out.println("关闭消费者a");
-        Thread.sleep(2000L);
-        executorService.shutdown();
-        System.out.println("关闭消费者组b");
-        Thread.sleep(2000L);
-        tc.stop();
-        System.out.println("关闭消费者c");
-        Thread.sleep(2000L);
-        td.stop();
-        System.out.println("关闭消费者d");
+        Thread.sleep(5000L);
+//        executorService.shutdown();
+//        System.out.println("关闭消费者组b");
+//        Thread.sleep(5000L);
+//        tc.stop();
+//        System.out.println("关闭消费者c");
+//        Thread.sleep(5000L);
+//        td.stop();
+//        System.out.println("关闭消费者d");
 
         System.out.println("关闭所有消费者完毕");
     }

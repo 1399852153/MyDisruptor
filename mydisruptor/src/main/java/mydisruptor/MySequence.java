@@ -55,4 +55,8 @@ public class MySequence {
         return UNSAFE.compareAndSwapLong(this, VALUE_OFFSET, expect, update);
     }
 
+    @Override
+    public String toString() {
+        return Long.toString(get());
+    }
 }
