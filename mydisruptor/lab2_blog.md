@@ -179,7 +179,6 @@ public class SequenceUtil {
 * 消费者的组间消费依赖关系可以很复杂(但不能存在循环依赖）。
 * **要实现消费者间的依赖，关键思路是让每个消费者维护其上游消费者的序列，在消费时控制所消费的序列号不大于上游所依赖的最慢的消费者**。
   ![](https://img2022.cnblogs.com/blog/1506329/202206/1506329-20220609212440430-420049778.png)
-
 ```java
 /**
  * 序列栅栏（仿Disruptor.SequenceBarrier）
@@ -194,9 +193,13 @@ public class MySequenceBarrier {
                              MyWaitStrategy myWaitStrategy, List<MySequence> dependentSequencesList) {
         this.currentProducerSequence = currentProducerSequence;
         this.myWaitStrategy = myWaitStrategy;
-        this.dependentSequencesList = dependentSequencesList;
-        
-        
+
+        if(!dependentSequencesList.isEmpty()) {
+            this.dependentSequencesList = dependentSequencesList;
+        }else{
+            // 如果传入的上游依赖序列为空，则生产者序列号作为兜底的依赖
+            this.dependentSequencesList = Collections.singletonList(currentProducerSequence);
+        }
     }
 
     /**
