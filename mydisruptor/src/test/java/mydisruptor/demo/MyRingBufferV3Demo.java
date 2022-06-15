@@ -6,14 +6,21 @@ import mydisruptor.model.OrderEventModel;
 import mydisruptor.model.OrderEventProducer;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MyRingBufferV3Demo {
 
     /**
-     * 单线程消费者A -> 多线程消费者B -> 单线程消费者C
+     *              -> 多线程消费者B（依赖A）
+     * 单线程消费者A                       -> 单线程消费者D（依赖B、C）
+     *              -> 单线程消费者C（依赖A）
      * */
     public static void main(String[] args) throws InterruptedException {
         // 环形队列容量为16（2的4次方）
@@ -35,7 +42,7 @@ public class MyRingBufferV3Demo {
 
         // ================================== 消费者组依赖上游的消费者A，通过消费者A的序列号创建序列屏障（构成消费的顺序依赖）
         MySequenceBarrier workerSequenceBarrier = myRingBuffer.newBarrier(consumeSequenceA);
-        // 基于序列屏障，创建消费者组
+        // 基于序列屏障，创建多线程消费者B
         MyWorkerPool<OrderEventModel> workerPoolProcessorB =
                 new MyWorkerPool<>(myRingBuffer, workerSequenceBarrier,
                         new OrderWorkHandlerDemo("workerHandler1"),
@@ -45,8 +52,8 @@ public class MyRingBufferV3Demo {
         // RingBuffer监听消费者C的序列
         myRingBuffer.addGatingConsumerSequenceList(workerSequences);
 
-        // ================================== 基于多线程消费者B的序列屏障，创建消费者C
-        MySequenceBarrier mySequenceBarrierC = myRingBuffer.newBarrier(workerSequences);
+        // ================================== 通过消费者A的序列号创建序列屏障（构成消费的顺序依赖），创建消费者C
+        MySequenceBarrier mySequenceBarrierC = myRingBuffer.newBarrier(consumeSequenceA);
 
         MyBatchEventProcessor<OrderEventModel> eventProcessorC =
                 new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerC"), mySequenceBarrierC);
@@ -54,31 +61,81 @@ public class MyRingBufferV3Demo {
         // RingBuffer监听消费者C的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceC);
 
-        // 启动消费者线程A
-        new Thread(eventProcessorA).start();
-        // 启动workerPool多线程消费者B
-        workerPoolProcessorB.start(Executors.newFixedThreadPool(3, new ThreadFactory() {
+        // ================================== 基于多线程消费者B，单线程消费者C的序列屏障，创建消费者D
+        MySequence[] bAndCSequenceArr = new MySequence[workerSequences.length+1];
+        // 把多线程消费者B的序列复制到合并的序列数组中
+        System.arraycopy(workerSequences, 0, bAndCSequenceArr, 0, workerSequences.length);
+        // 数组的最后一位是消费者C的序列
+        bAndCSequenceArr[bAndCSequenceArr.length-1] = consumeSequenceC;
+        MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(bAndCSequenceArr);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorD =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
+        MySequence consumeSequenceD = eventProcessorD.getCurrentConsumeSequence();
+        // RingBuffer监听消费者D的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
+
+        ExecutorService executorService = Executors.newFixedThreadPool(6, new ThreadFactory() {
             private final AtomicInteger mCount = new AtomicInteger(1);
 
             @Override
             public Thread newThread(Runnable r) {
                 return new Thread(r,"worker" + mCount.getAndIncrement());
             }
-        }));
+        });
+
+        // 启动消费者线程A
+        Thread ta = new Thread(eventProcessorA);
+        ta.start();
+
+        // 启动workerPool多线程消费者B
+        workerPoolProcessorB.start(executorService);
+
         // 启动消费者线程C
-        new Thread(eventProcessorC).start();
+        Thread tc = new Thread(eventProcessorC);
+        tc.start();
 
-        // 生产者发布100个事件
-        for(int i=0; i<100; i++) {
-            long nextIndex = myRingBuffer.next();
-            OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
-            orderEvent.setMessage("message-"+i);
-            orderEvent.setPrice(i * 10);
-            System.out.println("生产者发布事件：" + orderEvent);
-            myRingBuffer.publish(nextIndex);
-        }
+        // 启动消费者线程D
+        Thread td = new Thread(eventProcessorD);
+        td.start();
 
-        // 简单阻塞下，避免还未消费完主线程退出
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+        Thread producerThread = new Thread(
+                ()->{
+                    // 生产者发布100个事件
+                    for(int i=0; i<100; i++) {
+                        long nextIndex = myRingBuffer.next();
+                        OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
+                        orderEvent.setMessage("message-"+i);
+                        orderEvent.setPrice(i * 10);
+                        System.out.println("生产者发布事件：" + orderEvent);
+                        myRingBuffer.publish(nextIndex);
+                    }
+
+                    System.out.println("生产者生产完毕");
+                    countDownLatch.countDown();
+                }
+        );
+        producerThread.start();
+
+        countDownLatch.await();
+        producerThread.stop();
+
+        // 简单阻塞下，避免lazySet导致未消费完
         Thread.sleep(5000L);
+
+        ta.stop();
+        System.out.println("关闭消费者a");
+        Thread.sleep(2000L);
+        executorService.shutdown();
+        System.out.println("关闭消费者组b");
+        Thread.sleep(2000L);
+        tc.stop();
+        System.out.println("关闭消费者c");
+        Thread.sleep(2000L);
+        td.stop();
+        System.out.println("关闭消费者d");
+
+        System.out.println("关闭所有消费者完毕");
     }
 }
