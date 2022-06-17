@@ -187,7 +187,7 @@ public class MyWorkProcessor<T> implements Runnable{
 ####只使用workGroupSequence，每个MyWorkProcessor不单独维护currentConsumeSequence行不行？
 * 这是不行的。因为和单线程消费者的行为一样，都是具体的消费者eventHandler/workHandler执行过之后才更新消费者的序列号，令其对外部可见（生产者、下游消费者）。  
   消费依赖关系中约定，对于序列i事件只有在上游的消费者消费过后（eventHandler/workHandler执行过），下游才能消费序列i的事件。
-* 如果只使用workGroupSequence，则cas争抢成功后（但具体的消费者还未消费），其对应的消费序列便立即对外部可见，这是不符合上述约定的。
+* 如果只使用workGroupSequence，则cas争抢成功后（但具体的消费者还未消费），其对应的消费序列便立即对外部可见了，这是不符合上述约定的。
 * workGroupSequence主要是用于通过cas协调同一workerPool内消费者线程序列争抢，对外的约束依然需要每个workProcessor内部的消费者序列currentConsumeSequence来控制。
 # MyDisruptor v3版本demo解析
 v3版本支持了多线程消费者功能，下面通过一个demo来展示如何使用该功能。
