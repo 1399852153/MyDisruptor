@@ -5,10 +5,7 @@ import mydisruptor.*;
 import mydisruptor.model.OrderEventModel;
 import mydisruptor.model.OrderEventProducer;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
-import mydisruptor.waitstrategy.MyBusySpinWaitStrategy;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;

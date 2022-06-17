@@ -44,6 +44,7 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
             // 受制于屏障中的dependentSequences，用来控制当前消费者消费进度不得超过其所依赖的链路上游的消费者进度
             while ((availableSequence = SequenceUtil.getMinimumSequence(dependentSequences)) < currentConsumeSequence) {
                 // 由于消费者消费速度一般会很快，所以这里使用自旋阻塞来等待上游消费者进度推进（响应及时，且实现简单）
+
                 // 在jdk9开始引入的Thread.onSpinWait方法，优化自旋性能
                 MyThreadHints.onSpinWait();
             }

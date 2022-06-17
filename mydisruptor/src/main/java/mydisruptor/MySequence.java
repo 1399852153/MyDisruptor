@@ -54,11 +54,4 @@ public class MySequence {
     public boolean compareAndSet(long expect, long update){
         return UNSAFE.compareAndSwapLong(this, VALUE_OFFSET, expect, update);
     }
-
-    @Override
-    public String toString() {
-        return Long.toString(get()) + " " + ownerName;
-    }
-
-    public String ownerName;
 }
