@@ -19,7 +19,7 @@ public class MyRingBufferV3Demo {
      * */
     public static void main(String[] args) throws InterruptedException {
         // 环形队列容量为16（2的4次方）
-        int ringBufferSize = 4;
+        int ringBufferSize = 16;
 
         // 创建环形队列
         MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createSingleProducer(

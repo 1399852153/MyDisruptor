@@ -6,7 +6,7 @@
 * v2版本博客：[从零开始实现lmax-Disruptor队列（二）多消费者、消费者组间消费依赖原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16361197.html)
 # MyDisruptor支持多线程消费者
 * 之前的版本中我们已经实现了单线程消费者串行的消费，但在某些场景下我们需要更快的消费速度，所以disruptor也提供了多线程的消费者机制。  
-* 多线程消费者对外功能上和单线程消费者基本一样，也是全量的消费从序列0到序列N的完整事件，但内部却是并行乱序消费的。在一定的范围内，具体哪个线程消费哪个事件是通过CAS争抢随机获得的。
+* 多线程消费者对外功能上和单线程消费者基本一样，也是全量的消费从序列0到序列N的完整事件，但内部却是局部并行乱序消费的。在一定的范围内，具体哪个线程消费哪个事件是通过CAS争抢随机获得的。
 ![多线程消费者示意图.png](多线程消费者示意图.png)
 ### WorkerPool实现解析
 * disruptor中多线程消费者的载体是WorkerPool。
@@ -83,7 +83,7 @@ public interface MyWorkHandler<T> {
 }
 ```  
 ### MyWorkProcessor实现解析
-接下来就是本篇博客的重点部分，MyWorkProcessor的实现。
+接下来是本篇博客的重点部分，MyWorkProcessor的实现。
 ```java
 /**
  * 多线程消费者工作线程 （仿Disruptor.WorkProcessor）
@@ -173,21 +173,22 @@ public class MyWorkProcessor<T> implements Runnable{
     }
 }
 ```
-* WorkProcessor和单线程消费者BatchEventProcessor有许多类似之处：
+* WorkProcessor和单线程消费者BatchEventProcessor有不少相似之处：
 1. 也实现了Runnable接口，作为一个独立的线程通过一个主循环不断的监听上游进度而进行工作。
 2. 也通过构造函数传入的sequenceBarrier来控制消费速度。
 * WorkProcessor是隶属于特定WorkerPool的，一个WorkerPool下的所有WorkProcessor线程都通过WorkerPool的序列号对象workSequence来协调争抢序列。
 * WorkerPool内的每个MyWorkProcessor线程都可以通过CAS争抢到一个消费者内独一无二的序列号，保证不会出现多线程间的重复消费
   （假设一个WorkPool有三个WorkProcessor线程A、B、C，如果workerA线程争抢到了序列号1，则workerB、workerC线程就不会再处理序列号1，而是去争抢序列号2了）  
-  虽然disruptor一直在努力避免使用CAS，但多线程消费者并发争抢序列号的场景下也没有特别好的办法了。
+  **虽然disruptor一直在努力避免使用CAS，但多线程消费者并发争抢序列号的场景下也没有特别好的办法了。**
 * CAS争抢到了一个序列号后，如果当前序列号可用（小于或等于序列屏障给出的当前最大可消费序列号），则会调用用户自定义消费逻辑myWorkHandler进行业务处理。  
   如果当前序列号不可用,则会被阻塞于序列屏障的getAvailableConsumeSequence方法中。
 * WorkerPool通过getCurrentWorkerSequences对外暴露workerSequence和每个worker线程的本地消费序列合并在一起的集合。  
   因此CAS争抢时，通过this.currentConsumeSequence.lazySet(nextConsumerIndex - 1L)，保证当前workerProcessor的消费序列不会落后WorkerPool的序列太多
-#####只使用workGroupSequence，每个MyWorkProcessor不单独维护currentConsumeSequence行不行？
+####只使用workGroupSequence，每个MyWorkProcessor不单独维护currentConsumeSequence行不行？
 * 这是不行的。因为和单线程消费者的行为一样，都是具体的消费者eventHandler/workHandler执行过之后才更新消费者的序列号，令其对外部可见（生产者、下游消费者）。  
-* 消费依赖关系中约定，对于序列i事件只有在上游的消费者消费过后（eventHandler/workHandler执行过），下游才能消费序列i的事件。  
-* workGroupSequence主要是用于通过cas协调同一workerPool内消费者线程序列争抢，对外的约束依然需要每个workProcessor本地的消费者序列currentConsumeSequence来控制。
+  消费依赖关系中约定，对于序列i事件只有在上游的消费者消费过后（eventHandler/workHandler执行过），下游才能消费序列i的事件。
+* 如果只使用workGroupSequence，则cas争抢成功后（但具体的消费者还未消费），其对应的消费序列便立即对外部可见，这是不符合上述约定的。
+* workGroupSequence主要是用于通过cas协调同一workerPool内消费者线程序列争抢，对外的约束依然需要每个workProcessor内部的消费者序列currentConsumeSequence来控制。
 # MyDisruptor v3版本demo解析
 v3版本支持了多线程消费者功能，下面通过一个demo来展示如何使用该功能。
 ```java
@@ -200,7 +201,7 @@ public class MyRingBufferV3Demo {
      * */
     public static void main(String[] args) throws InterruptedException {
         // 环形队列容量为16（2的4次方）
-        int ringBufferSize = 4;
+        int ringBufferSize = 16;
 
         // 创建环形队列
         MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createSingleProducer(
@@ -282,13 +283,16 @@ public class MyRingBufferV3Demo {
     }
 }
 ```
-* WorkPool对外直接面向用户，而WorkProcessor则被封装隐藏起来，对用户是不可见的。
-* WorkPool作为一个消费者有着自己的消费序列，也是通过往ringBuffer的生产者中注册**消费序列**限制生产速度；让下游消费者维护**消费序列**实现上下游依赖关系的。  
+* WorkPool对外直接面向用户，而WorkProcessor则被封装隐藏起来，对用户不可见。
+* WorkPool作为一个消费者有着自己的消费序列，其也是通过往ringBuffer的生产者中注册**消费序列**限制生产速度，让下游消费者维护**消费序列**实现上下游依赖关系的。  
   但WorkPool是多线程的，其消费序列是一个包含WorkPool总序列号和各个子线程内序列号的集合。因此在上述场景中，需要将这个集合（数组）视为一个整体维护起来。
 
 # 总结
-* 在v3版本中我们实现了多线程的消费者，其
+* 在v3版本中我们实现了多线程的消费者。多线程消费者中，每个worker线程通过cas排它的争抢序列号，因此多线程消费者WorkPool可以在同一时刻并发的同时消费多个事件。   
+  在消费逻辑较耗时的场景下，可以考虑使用disruptor的多线程消费者来加速消费。
+* 由于java中线程调度主要由操作系统控制，在某一线程cas争抢到序列号n后但还未实际调用workerHandler的用户自定义消费接口前，可能会被操作系统暂时挂起，此时争抢到更大序列号n+1的其它线程则可以先调用workerHandler的用户自定义消费接口。
+  带来的直接影响就是多线程消费者内部的消费是局部乱序的（可能n+1序列的事件先消费、n序列的事件后消费）。
 #####
 disruptor无论在整体设计还是最终代码实现上都有很多值得反复琢磨和学习的细节，希望能帮助到对disruptor感兴趣的小伙伴。
 #####
-本篇博客的完整代码在我的github上：https://github.com/1399852153/MyDisruptor 分支：feature/lab2
+本篇博客的完整代码在我的github上：https://github.com/1399852153/MyDisruptor 分支：feature/lab3
