@@ -10,12 +10,14 @@ import java.util.List;
  * */
 public class MySequenceBarrier {
 
+    private final MyProducerSequencer myProducerSequencer;
     private final MySequence currentProducerSequence;
     private final MyWaitStrategy myWaitStrategy;
     private final List<MySequence> dependentSequencesList;
 
-    public MySequenceBarrier(MySequence currentProducerSequence,
+    public MySequenceBarrier(MyProducerSequencer myProducerSequencer, MySequence currentProducerSequence,
                              MyWaitStrategy myWaitStrategy, List<MySequence> dependentSequencesList) {
+        this.myProducerSequencer = myProducerSequencer;
         this.currentProducerSequence = currentProducerSequence;
         this.myWaitStrategy = myWaitStrategy;
 
@@ -31,7 +33,13 @@ public class MySequenceBarrier {
      * 获得可用的消费者下标
      * */
     public long getAvailableConsumeSequence(long currentConsumeSequence) throws InterruptedException {
-        // v1版本只是简单的调用waitFor，等待其返回即可
-        return this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList);
+        long availableSequence = this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList);
+
+        if (availableSequence < currentConsumeSequence) {
+            return availableSequence;
+        }
+
+        // 多线程生产者中，需要进一步约束（）
+        return myProducerSequencer.getHighestPublishedSequence(currentConsumeSequence,availableSequence);
     }
 }

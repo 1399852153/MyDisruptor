@@ -9,18 +9,18 @@ import mydisruptor.waitstrategy.MyWaitStrategy;
 public class MyRingBuffer<T> {
 
     private final T[] elementList;
-    private final MySingleProducerSequencer mySingleProducerSequencer;
+    private final MyProducerSequencer myProducerSequencer;
     private final int ringBufferSize;
     private final int mask;
 
-    public MyRingBuffer(MySingleProducerSequencer mySingleProducerSequencer, MyEventFactory<T> myEventFactory) {
-        int bufferSize = mySingleProducerSequencer.getRingBufferSize();
+    public MyRingBuffer(MyProducerSequencer myProducerSequencer, MyEventFactory<T> myEventFactory) {
+        int bufferSize = myProducerSequencer.getRingBufferSize();
         if (Integer.bitCount(bufferSize) != 1) {
             // ringBufferSize需要是2的倍数，类似hashMap，求余数时效率更高
             throw new IllegalArgumentException("bufferSize must be a power of 2");
         }
 
-        this.mySingleProducerSequencer = mySingleProducerSequencer;
+        this.myProducerSequencer = myProducerSequencer;
         this.ringBufferSize = bufferSize;
         this.elementList = (T[]) new Object[bufferSize];
         // 回环掩码
@@ -39,39 +39,44 @@ public class MyRingBuffer<T> {
     }
 
     public MySequence getCurrentProducerSequence(){
-        return this.mySingleProducerSequencer.getCurrentProducerSequence();
+        return this.myProducerSequencer.getCurrentProducerSequence();
     }
 
     public long next(){
-        return this.mySingleProducerSequencer.next();
+        return this.myProducerSequencer.next();
     }
 
     public long next(int n){
-        return this.mySingleProducerSequencer.next(n);
+        return this.myProducerSequencer.next(n);
     }
 
     public void publish(Long index){
-        this.mySingleProducerSequencer.publish(index);
+        this.myProducerSequencer.publish(index);
     }
 
     public void addGatingConsumerSequenceList(MySequence consumerSequence){
-        this.mySingleProducerSequencer.addGatingConsumerSequenceList(consumerSequence);
+        this.myProducerSequencer.addGatingConsumerSequenceList(consumerSequence);
     }
 
     public void addGatingConsumerSequenceList(MySequence... consumerSequences){
-        this.mySingleProducerSequencer.addGatingConsumerSequenceList(consumerSequences);
+        this.myProducerSequencer.addGatingConsumerSequenceList(consumerSequences);
     }
 
     public MySequenceBarrier newBarrier() {
-        return this.mySingleProducerSequencer.newBarrier();
+        return this.myProducerSequencer.newBarrier();
     }
 
     public MySequenceBarrier newBarrier(MySequence... dependenceSequences) {
-        return this.mySingleProducerSequencer.newBarrier(dependenceSequences);
+        return this.myProducerSequencer.newBarrier(dependenceSequences);
     }
 
     public static <E> MyRingBuffer<E> createSingleProducer(MyEventFactory<E> factory, int bufferSize, MyWaitStrategy waitStrategy) {
         MySingleProducerSequencer sequencer = new MySingleProducerSequencer(bufferSize, waitStrategy);
+        return new MyRingBuffer<>(sequencer,factory);
+    }
+
+    public static <E> MyRingBuffer<E> createMultiProducer(MyEventFactory<E> factory, int bufferSize, MyWaitStrategy waitStrategy) {
+        MyMultiProducerSequencer sequencer = new MyMultiProducerSequencer(bufferSize, waitStrategy);
         return new MyRingBuffer<>(sequencer,factory);
     }
 }
