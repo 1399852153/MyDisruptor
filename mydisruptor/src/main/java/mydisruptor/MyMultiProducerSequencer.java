@@ -15,11 +15,11 @@ import java.util.concurrent.locks.LockSupport;
 public class MyMultiProducerSequencer implements MyProducerSequencer{
 
     private final int ringBufferSize;
-    private final MySequence currentMaxProducerSequence = new MySequence(-1);
+    private final MySequence currentProducerSequence = new MySequence();
     private final List<MySequence> gatingConsumerSequenceList = new ArrayList<>();
     private final MyWaitStrategy myWaitStrategy;
 
-    private final MySequence gatingSequenceCache = new MySequence(-1);
+    private final MySequence gatingSequenceCache = new MySequence();
     private final int[] availableBuffer;
     private final int indexMask;
     private final int indexShift;
@@ -55,8 +55,8 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     @Override
     public long next(int n) {
         do {
-            // 保存申请前的生产者序列
-            long currentMaxProducerSequenceNum = currentMaxProducerSequence.get();
+            // 保存申请前的最大生产者序列
+            long currentMaxProducerSequenceNum = currentProducerSequence.get();
             // 申请之后的生产者位点
             long nextProducerSequence = currentMaxProducerSequenceNum + n;
 
@@ -69,19 +69,22 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
             // 每次发布都实时获取反而会触发对消费者sequence强一致的读，迫使消费者线程所在的CPU刷新缓存（而这是不需要的）
             if(wrapPoint > cachedGatingSequence){
                 long gatingSequence = SequenceUtil.getMinimumSequence(currentMaxProducerSequenceNum, this.gatingConsumerSequenceList);
-                if(nextProducerSequence > gatingSequence + this.ringBufferSize){
+                if(wrapPoint > gatingSequence){
                     // 如果确实超过了一圈，则生产者无法获取队列空间
                     LockSupport.parkNanos(1);
-                    // park短暂阻塞后重新进入循环
-                     continue;
+                    // park短暂阻塞后continue跳出重新进入循环
+                    continue;
+
+                    // 为什么不能像单线程一样在这里while循环park？
+                    // 因为别的生产者线程也在争抢currentMaxProducerSequence，如果在这里直接阻塞，会导致当前拿到的序列号其实已经
                 }
 
                 // 满足条件了，则缓存获得最新的消费者序列
                 // 因为不是实时获取消费者序列，可能gatingSequence比上一次的值要大很多
-                // 这种情况下，待到下一次next申请时就可以不用去强一致的读consumerSequence了
+                // 这种情况下，待到下一次next申请时就可以不用去强一致的通过getMinimumSequence读consumerSequence了（走else分支）
                 this.gatingSequenceCache.set(gatingSequence);
             }else {
-                if (this.currentMaxProducerSequence.compareAndSet(currentMaxProducerSequenceNum, nextProducerSequence)) {
+                if (this.currentProducerSequence.compareAndSet(currentMaxProducerSequenceNum, nextProducerSequence)) {
                     // 由于是多生产者序列，可能存在多个生产者同时执行next方法申请序列，因此只有cas成功的线程才视为申请成功，可以跳出循环
                     return nextProducerSequence;
                 }
@@ -100,12 +103,12 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
 
     @Override
     public MySequenceBarrier newBarrier() {
-        return new MySequenceBarrier(this,this.currentMaxProducerSequence,this.myWaitStrategy,new ArrayList<>());
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>());
     }
 
     @Override
     public MySequenceBarrier newBarrier(MySequence... dependenceSequences) {
-        return new MySequenceBarrier(this,this.currentMaxProducerSequence,this.myWaitStrategy,new ArrayList<>(Arrays.asList(dependenceSequences)));
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>(Arrays.asList(dependenceSequences)));
 
     }
 
@@ -121,7 +124,7 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
 
     @Override
     public MySequence getCurrentProducerSequence() {
-        return this.currentMaxProducerSequence;
+        return this.currentProducerSequence;
     }
 
     @Override
