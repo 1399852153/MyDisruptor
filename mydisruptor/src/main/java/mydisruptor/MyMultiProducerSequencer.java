@@ -10,7 +10,6 @@ import java.util.concurrent.locks.LockSupport;
 
 /**
  * 多线程生产者（仿disruptor.MultiProducerSequencer）
- * @author shanreng
  */
 public class MyMultiProducerSequencer implements MyProducerSequencer{
 
@@ -75,8 +74,9 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
                     // park短暂阻塞后continue跳出重新进入循环
                     continue;
 
-                    // 为什么不能像单线程一样在这里while循环park？
-                    // 因为别的生产者线程也在争抢currentMaxProducerSequence，如果在这里直接阻塞，会导致当前拿到的序列号其实已经
+                    // 为什么不能像单线程生产者一样在这里while循环park？
+                    // 因为别的生产者线程也在争抢currentMaxProducerSequence，如果在这里直接阻塞，会导致当前拿到的序列号可能也被别的线程获取到
+                    // 但最终是否可用需要通过cas的结果来决定，所以每次循环必须重新获取gatingSequenceCache最新的值
                 }
 
                 // 满足条件了，则缓存获得最新的消费者序列

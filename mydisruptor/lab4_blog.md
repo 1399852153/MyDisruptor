@@ -9,13 +9,12 @@
 * 之前的v3版本实现了多线程消费者，提供并发消费的能力以加速消费速度。同理，disruptor也提供了多线程生产者机制以支持更快的生产速度。
 * disruptor的多线程生产者机制，其本质是提供了一个线程安全的生产者序列器。
   线程安全的生产者序列器允许多个线程并发的通过next方法申请可用的生产序列号和publish发布序列号，内部通过cas机制保证每个生产者线程拿到的序列号是独一无二的。
-
-
-* disruptor的多线程生产者中通过AvailableBuffer数组机制，巧妙的避免了多个线程发布时争抢生产者
+* disruptor的多线程生产者中通过AvailableBuffer数组机制，巧妙地避免了多个线程发布时并发的修改可用的最大生产者序列
+  （不是根据一个序列号来标识，而是通过一整个数组来标识可用的最大生产者序列，发布时每个生产者线程都只会更新完全属于该线程的下标值，不会出现多写争抢）。
 ### 如何设计一个线程安全的多生产者？
-在开始介绍disruptor的实现方式之前，站在设计者的角度先思考一下如何设计一个线程安全的生产者序列器（功能和单线程生产者序列器几乎一致）。  
+在开始介绍disruptor的实现方式之前，可以站在设计者的角度先大致思考一下如何设计一个线程安全的生产者序列器（其功能、使用方法最好和单线程生产者序列器保持一致）。  
 
-**首先第一个要解决的问题便是：如何保证多个线程能够给线程安全的获取序列号，不会获取到重复的序列号而互相覆盖？**   
+**首先第一个要解决的问题便是：如何保证多个线程能够线程安全的获取序列号，不会获取到重复的序列号而互相覆盖？**   
 可以参考多线程消费者，在next方法中通过cas的争抢来实现。  
 
 disruptor的生产者生产时是分为两个阶段的，首先通过next方法获取可用的序列号，然后通过publish发布序列号，令生产完成的序列号对消费者可见，消费者监听到生产者序列号的变化便会进行对应的消费。
@@ -31,7 +30,249 @@ disruptor的生产者生产时是分为两个阶段的，首先通过next方法�
 
 可以看到从设计者的角度出发，可以想到非常多的方案。其中有的可行，有的不可行；可行的方案中有的性能更好，有的更简洁优雅，读者可以尝试着发散一下思维，这里限于篇幅就不再展开了。
 ### 多线程生产者MyMultiProducerSequencer介绍
-disruptor的设计者肯定也对各种方案进行了评估，下面我们就来看看disruptor开发团队认为的最好的多线程生产者设计方案吧。
+disruptor的设计者当初肯定也对各种方案进行了评估，下面我们就来看看disruptor开发团队认为的最好的多线程生产者设计方案吧。  
+disruptor多线程生产者的next方法实现和单线程生产者原理差不多，但为了实现线程安全在几处关键地方有所不同。
+##### 如何保证多个线程能够线程安全的获取序列号，不会获取到重复的序列号而互相覆盖？
+单线程消费者中最新的消费者序列值是一个普通的long类型变量，而多线程消费者中则通过一个Sequence对象来保存缓存的最新消费者序列值实现线程间的可见。  
+同时Sequence类中还提供了一个CAS方法compareAndSet(MySequence的v4版本新增该方法)。
+通过Sequence提供的cas方法，多个生产者线程并发调用next方法时，每个线程通过对currentProducerSequence进行cas争抢可以保证返回独一无二的序列号。
+##### 二阶段生产+多线程并发的场景下，如何避免消费者消费到还未发布完成的事件？
+* 多线程生产者中新增了一个和队列长度保持一致的数组availableBuffer，用于维护对应序列号的发布状态。  
+  每个生产者发布对应序列号时，也会通过按照availableBuffer长度求余数的方式，更新对应位置的数据。当一来就能记录一个序列号段内，到底哪些序列号已发布哪些还未发布（例如序列号11已发布、12、13未发布，14已发布）。
+* 前面提到多线程生产者中在next方法中，还未发布就更新了currentProducerSequence的值，使得对外暴露的最大可用生产者队列变得不准确了。
+  因此多线程生产者中currentProducerSequence(cursor)不再用于标识**可用的最大生产者序列**，而仅标识**已发布的最大生产者序列**。
+##### 如何兼容之前单线程生产者场景下，SequenceBarrier/WaitStrategy中利用currentProducerSequence(cursor)进行消费进度约束的设计呢？
+* 之前SequenceBarrier中维护了currentProducerSequence最大可用生产者序列，通过这个来避免消费者消费越界，访问到还未完成生产的事件。  
+  但多线程生产者中小于currentProducerSequence的序列号可能还未发布，其实际含义已经变了，disruptor在SequenceBarrier的waitFor方法中被迫打了个补丁来做兼容。
+* SequenceBarrier中也维护了生产者序列器对象，并且生产者序列器对象实现了getHighestPublishedSequence接口，供SequenceBarrier使用（MyDisruptor v4版本新增）。  
+  单线程生产者的getHighestPublishedSequence实现中，和之前逻辑一样availableSequence就是可用的最大生产者序列。  
+  多线程生产者的getHighestPublishedSequence实现中，则返回availableBuffer中的**连续的**最大序列号（具体的原理在下文详细讲解）。
+```java
+/**
+ * 多线程生产者（仿disruptor.MultiProducerSequencer）
+ */
+public class MyMultiProducerSequencer implements MyProducerSequencer{
+    private final int ringBufferSize;
+    private final MySequence currentProducerSequence = new MySequence();
+    private final List<MySequence> gatingConsumerSequenceList = new ArrayList<>();
+    private final MyWaitStrategy myWaitStrategy;
 
+    private final MySequence gatingSequenceCache = new MySequence();
+    private final int[] availableBuffer;
+    private final int indexMask;
+    private final int indexShift;
 
+    public MyMultiProducerSequencer(int ringBufferSize, final MyWaitStrategy myWaitStrategy) {
+        this.ringBufferSize = ringBufferSize;
+        this.myWaitStrategy = myWaitStrategy;
+        this.availableBuffer = new int[ringBufferSize];
+        this.indexMask = this.ringBufferSize - 1;
+        this.indexShift = log2(ringBufferSize);
+        initialiseAvailableBuffer();
+    }
 
+    private void initialiseAvailableBuffer() {
+        for (int i = availableBuffer.length - 1; i >= 0; i--) {
+            this.availableBuffer[i] = -1;
+        }
+    }
+
+    private static int log2(int i) {
+        int r = 0;
+        while ((i >>= 1) != 0) {
+            ++r;
+        }
+        return r;
+    }
+
+    @Override
+    public long next() {
+        return next(1);
+    }
+
+    @Override
+    public long next(int n) {
+        do {
+            // 保存申请前的最大生产者序列
+            long currentMaxProducerSequenceNum = currentProducerSequence.get();
+            // 申请之后的生产者位点
+            long nextProducerSequence = currentMaxProducerSequenceNum + n;
+
+            // 新申请的位点下，生产者恰好超过消费者一圈的环绕临界点序列
+            long wrapPoint = nextProducerSequence - this.ringBufferSize;
+            // 获得当前已缓存的消费者位点(使用Sequence对象维护位点，volatile的读。因为多生产者环境下，多个线程会并发读写gatingSequenceCache)
+            long cachedGatingSequence = this.gatingSequenceCache.get();
+
+            // 消费者位点cachedValue并不是实时获取的（因为在没有超过环绕点一圈时，生产者是可以放心生产的）
+            // 每次发布都实时获取反而会触发对消费者sequence强一致的读，迫使消费者线程所在的CPU刷新缓存（而这是不需要的）
+            if(wrapPoint > cachedGatingSequence){
+                long gatingSequence = SequenceUtil.getMinimumSequence(currentMaxProducerSequenceNum, this.gatingConsumerSequenceList);
+                if(wrapPoint > gatingSequence){
+                    // 如果确实超过了一圈，则生产者无法获取队列空间
+                    LockSupport.parkNanos(1);
+                    // park短暂阻塞后continue跳出重新进入循环
+                    continue;
+
+                    // 为什么不能像单线程生产者一样在这里while循环park？
+                    // 因为别的生产者线程也在争抢currentMaxProducerSequence，如果在这里直接阻塞，会导致当前拿到的序列号可能也被别的线程获取到
+                    // 但最终是否可用需要通过cas的结果来决定，所以每次循环必须重新获取gatingSequenceCache最新的值
+                }
+
+                // 满足条件了，则缓存获得最新的消费者序列
+                // 因为不是实时获取消费者序列，可能gatingSequence比上一次的值要大很多
+                // 这种情况下，待到下一次next申请时就可以不用去强一致的通过getMinimumSequence读consumerSequence了（走else分支）
+                this.gatingSequenceCache.set(gatingSequence);
+            }else {
+                if (this.currentProducerSequence.compareAndSet(currentMaxProducerSequenceNum, nextProducerSequence)) {
+                    // 由于是多生产者序列，可能存在多个生产者同时执行next方法申请序列，因此只有cas成功的线程才视为申请成功，可以跳出循环
+                    return nextProducerSequence;
+                }
+
+                // cas更新失败，重新循环获取最新的消费位点
+                // continue;
+            }
+        }while (true);
+    }
+
+    @Override
+    public void publish(long publishIndex) {
+        setAvailable(publishIndex);
+        this.myWaitStrategy.signalWhenBlocking();
+    }
+
+    @Override
+    public MySequenceBarrier newBarrier() {
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>());
+    }
+
+    @Override
+    public MySequenceBarrier newBarrier(MySequence... dependenceSequences) {
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>(Arrays.asList(dependenceSequences)));
+
+    }
+
+    @Override
+    public void addGatingConsumerSequenceList(MySequence newGatingConsumerSequence) {
+        this.gatingConsumerSequenceList.add(newGatingConsumerSequence);
+    }
+
+    @Override
+    public void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences) {
+        this.gatingConsumerSequenceList.addAll(Arrays.asList(newGatingConsumerSequences));
+    }
+
+    @Override
+    public MySequence getCurrentProducerSequence() {
+        return this.currentProducerSequence;
+    }
+
+    @Override
+    public int getRingBufferSize() {
+        return this.ringBufferSize;
+    }
+
+    @Override
+    public long getHighestPublishedSequence(long lowBound, long availableSequence) {
+        // lowBound是消费者传入的，保证是已经明确发布了的最小生产者序列号
+        // 因此，从lowBound开始，向后寻找,有两种情况
+        // 1 在lowBound到availableSequence中间存在未发布的下标(isAvailable(sequence) == false)，
+        // 那么，找到的这个未发布下标的前一个序列号，就是当前最大的已经发布了的序列号（可以被消费者正常消费）
+        // 2 在lowBound到availableSequence中间不存在未发布的下标，那么就和单生产者的情况一样
+        // 包括availableSequence以及之前的序列号都已经发布过了，availableSequence就是当前可用的最大的的序列号（已发布的）
+        for(long sequence = lowBound; sequence <= availableSequence; sequence++){
+            if (!isAvailable(sequence)) {
+                // 属于上述的情况1，lowBound和availableSequence中间存在未发布的序列号
+                return sequence - 1;
+            }
+        }
+
+        // 属于上述的情况2，lowBound和availableSequence中间不存在未发布的序列号
+        return availableSequence;
+    }
+
+    private void setAvailable(long sequence){
+        int index = calculateIndex(sequence);
+        int flag = calculateAvailabilityFlag(sequence);
+        this.availableBuffer[index] = flag;
+    }
+
+    private int calculateAvailabilityFlag(long sequence) {
+        return (int) (sequence >>> indexShift);
+    }
+
+    private int calculateIndex(long sequence) {
+        return ((int) sequence) & indexMask;
+    }
+
+    public boolean isAvailable(long sequence) {
+        int index = calculateIndex(sequence);
+        int flag = calculateAvailabilityFlag(sequence);
+        return this.availableBuffer[index] == flag;
+    }
+}
+```
+```java
+/**
+ * 序列号对象（仿Disruptor.Sequence）
+ *
+ * 由于需要被生产者、消费者线程同时访问，因此内部是一个volatile修饰的long值
+ * */
+public class MySequence {
+
+    /**
+     * 序列起始值默认为-1，保证下一序列恰好是0（即第一个合法的序列号）
+     * */
+    private volatile long value = -1;
+
+    private static final Unsafe UNSAFE;
+    private static final long VALUE_OFFSET;
+
+    static {
+        try {
+            // 由于提供给cas内存中字段偏移量的unsafe类只能在被jdk信任的类中直接使用，这里使用反射来绕过这一限制
+            Field getUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+            getUnsafe.setAccessible(true);
+            UNSAFE = (Unsafe) getUnsafe.get(null);
+            VALUE_OFFSET = UNSAFE.objectFieldOffset(MySequence.class.getDeclaredField("value"));
+        }
+        catch (final Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public MySequence() {
+    }
+
+    public MySequence(long value) {
+        this.value = value;
+    }
+
+    public long get() {
+        return value;
+    }
+
+    public void set(long value) {
+        this.value = value;
+    }
+
+    public void lazySet(long value) {
+        UNSAFE.putOrderedLong(this, VALUE_OFFSET, value);
+    }
+
+    public boolean compareAndSet(long expect, long update){
+        return UNSAFE.compareAndSwapLong(this, VALUE_OFFSET, expect, update);
+    }
+}
+```
+##### availableBuffer标识发布状态工作原理解析
+todo 待完善
+
+### MyProducerSequencer接口
+disruptor需要兼容单线程、多线程两种类型的生产者
+todo 待完善
+
+# MyDisruptor v4版本demo解析
+todo 待完善
+
+# 总结
+todo 待完善

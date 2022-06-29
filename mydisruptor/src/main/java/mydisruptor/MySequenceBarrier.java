@@ -30,7 +30,7 @@ public class MySequenceBarrier {
     }
 
     /**
-     * 获得可用的消费者下标
+     * 获得可用的消费者下标（disruptor中的waitFor）
      * */
     public long getAvailableConsumeSequence(long currentConsumeSequence) throws InterruptedException {
         long availableSequence = this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList);
