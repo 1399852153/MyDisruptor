@@ -44,9 +44,6 @@ disruptor多线程生产者的next方法实现和单线程生产者原理差不�
 ##### 如何兼容之前单线程生产者场景下，SequenceBarrier/WaitStrategy中利用currentProducerSequence(cursor)进行消费进度约束的设计呢？
 * 之前SequenceBarrier中维护了currentProducerSequence最大可用生产者序列，通过这个来避免消费者消费越界，访问到还未完成生产的事件。  
   但多线程生产者中小于currentProducerSequence的序列号可能还未发布，其实际含义已经变了，disruptor在SequenceBarrier的waitFor方法中被迫打了个补丁来做兼容。
-* SequenceBarrier中也维护了生产者序列器对象，并且生产者序列器对象实现了getHighestPublishedSequence接口，供SequenceBarrier使用（MyDisruptor v4版本新增）。  
-  单线程生产者的getHighestPublishedSequence实现中，和之前逻辑一样availableSequence就是可用的最大生产者序列。  
-  多线程生产者的getHighestPublishedSequence实现中，则返回availableBuffer中的**连续的**最大序列号（具体的原理在下文详细讲解）。
 ```java
 /**
  * 多线程生产者（仿disruptor.MultiProducerSequencer）
@@ -264,13 +261,132 @@ public class MySequence {
     }
 }
 ```
+* SequenceBarrier中也维护了生产者序列器对象，并且生产者序列器对象实现了getHighestPublishedSequence接口，供SequenceBarrier使用（MyDisruptor v4版本新增）。  
+  单线程生产者的getHighestPublishedSequence实现中，和之前逻辑一样availableSequence就是可用的最大生产者序列。  
+  多线程生产者的getHighestPublishedSequence实现中，则返回availableBuffer中的**连续的**最大序列号（具体的原理在下文详细讲解）。
+```java
+/**
+ * 序列栅栏（仿Disruptor.SequenceBarrier）
+ * */
+public class MySequenceBarrier {
+
+    private final MyProducerSequencer myProducerSequencer;
+    private final MySequence currentProducerSequence;
+    private final MyWaitStrategy myWaitStrategy;
+    private final List<MySequence> dependentSequencesList;
+
+    public MySequenceBarrier(MyProducerSequencer myProducerSequencer, MySequence currentProducerSequence,
+                             MyWaitStrategy myWaitStrategy, List<MySequence> dependentSequencesList) {
+        this.myProducerSequencer = myProducerSequencer;
+        this.currentProducerSequence = currentProducerSequence;
+        this.myWaitStrategy = myWaitStrategy;
+
+        if(!dependentSequencesList.isEmpty()) {
+            this.dependentSequencesList = dependentSequencesList;
+        }else{
+            // 如果传入的上游依赖序列为空，则生产者序列号作为兜底的依赖
+            this.dependentSequencesList = Collections.singletonList(currentProducerSequence);
+        }
+    }
+
+    /**
+     * 获得可用的消费者下标（disruptor中的waitFor）
+     * */
+    public long getAvailableConsumeSequence(long currentConsumeSequence) throws InterruptedException {
+        long availableSequence = this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList);
+
+        if (availableSequence < currentConsumeSequence) {
+            return availableSequence;
+        }
+
+      // 多线程生产者中，需要进一步约束（于v4版本新增）
+      return myProducerSequencer.getHighestPublishedSequence(currentConsumeSequence,availableSequence);
+    }
+}
+```  
 ##### availableBuffer标识发布状态工作原理解析
-todo 待完善
+* 构造函数初始化时通过initialiseAvailableBuffer方法将availableBuffer内部的值都设置为-1的初始值。
+* availableBuffer中的值标识的是ringBuffer中对应下标位置的事件第几次被覆盖。  
+  举个例子：一个长度为8的ringBuffer，其内部数组下标为2的位置，当序列号为2时其值会被设置为0（第一次被设置值，未被覆盖），序列号为10时其值会被设置为1（被覆盖一次），序列号为18时其值会被设置为2（被覆盖两次），依次类推。
+  序列号对应的下标值通过calculateIndex求模运算获得，而被覆盖的次数通过calculateAvailabilityFlag方法对当前发布的序列号做对数计算出来。
+* 在MultiProducerSequencer的publish方法中，通过setAvailable来标示当前序号为已发布状态的，原理如上所述。
+* 而在消费者序列屏障中被调用的getHighestPublishedSequence方法中，则通过isAvailable来判断传入的序列号是否已发布。  
+  **isAvailable方法相当于对setAvailable做了个逆运算，如果对应的序列号确实已经发布过了，那么availableBuffer对应下标的值一定做了对数运算的值，否则就是还未发布。**
+* 由于在next方法中控制、约束了可申请到的生产者序列号不会超过最慢的生产者一轮（ringBuffer的长度），因此不用担心位于不同轮次的序列号发布会互相覆盖。
+  如果没有next方法中的最大差异约束，之前举例的场景中，ringBuffer长度为8，此时序列号10还未发布，序列号18却发布了，则availableBuffer中下标为2的位置就被覆盖了（无法真实记录序列号10是否发布）。
+### MyProducerSequencer接口统一两种类型的生产者
+disruptor需要支持单线程、多线程两种类型的生产者。所以抽象了一个生产者序列器接口ProducerSequencer用于兼容两者的差异。
+```java
+/**
+ * 生产者序列器接口（仿disruptor.ProducerSequencer）
+ * */
+public interface MyProducerSequencer {
 
-### MyProducerSequencer接口
-disruptor需要兼容单线程、多线程两种类型的生产者
-todo 待完善
+    /**
+     * 获得一个可用的生产者序列值
+     * @return 可用的生产者序列值
+     * */
+    long next();
 
+    /**
+     * 获得一个可用的生产者序列值区间
+     * @param n 区间长度
+     * @return 可用的生产者序列区间的最大值
+     * */
+    long next(int n);
+
+    /**
+     * 发布一个生产者序列
+     * @param publishIndex 需要发布的生产者序列号
+     * */
+    void publish(long publishIndex);
+
+    /**
+     * 创建一个无上游消费者依赖的序列屏障
+     * @return 新的序列屏障
+     * */
+    MySequenceBarrier newBarrier();
+
+    /**
+     * 创建一个有上游依赖的序列屏障
+     * @param dependenceSequences 上游依赖的序列集合
+     * @return 新的序列屏障
+     * */
+    MySequenceBarrier newBarrier(MySequence... dependenceSequences);
+
+    /**
+     * 向生产者注册一个消费者序列
+     * @param newGatingConsumerSequence 新的消费者序列
+     * */
+    void addGatingConsumerSequenceList(MySequence newGatingConsumerSequence);
+
+    /**
+     * 向生产者注册一个消费者序列集合
+     * @param newGatingConsumerSequences 新的消费者序列集合
+     * */
+    void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences);
+
+    /**
+     * 获得当前的生产者序列（cursor）
+     * @return 当前的生产者序列
+     * */
+    MySequence getCurrentProducerSequence();
+
+    /**
+     * 获得ringBuffer的大小
+     * @return ringBuffer大小
+     * */
+    int getRingBufferSize();
+
+    /**
+     * 获得最大的已发布的，可用的消费者序列值
+     * @param nextSequence 已经明确发布了的最小生产者序列号
+     * @param availableSequence 需要申请的，可能的最大的序列号
+     * @return 最大的已发布的，可用的消费者序列值
+     * */
+    long getHighestPublishedSequence(long nextSequence, long availableSequence);
+}
+```
 # MyDisruptor v4版本demo解析
 todo 待完善
 

@@ -39,7 +39,7 @@ public class MySequenceBarrier {
             return availableSequence;
         }
 
-        // 多线程生产者中，需要进一步约束（）
+        // 多线程生产者中，需要进一步约束（于v4版本新增）
         return myProducerSequencer.getHighestPublishedSequence(currentConsumeSequence,availableSequence);
     }
 }

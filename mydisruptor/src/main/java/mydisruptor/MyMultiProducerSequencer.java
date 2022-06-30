@@ -98,6 +98,7 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     @Override
     public void publish(long publishIndex) {
         setAvailable(publishIndex);
+        System.out.println("publishIndex=" + publishIndex + " " + Arrays.toString(this.availableBuffer));
         this.myWaitStrategy.signalWhenBlocking();
     }
 

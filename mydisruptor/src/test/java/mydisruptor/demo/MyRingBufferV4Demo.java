@@ -14,7 +14,7 @@ public class MyRingBufferV4Demo {
 
     public static void main(String[] args) {
         // 环形队列容量为16（2的4次方）
-        int ringBufferSize = 16;
+        int ringBufferSize = 8;
 
         // 创建环形队列(多线程生产者，即多线程安全的生产者（可以并发的next、publish）)
         MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createMultiProducer(
@@ -93,7 +93,7 @@ public class MyRingBufferV4Demo {
                 return new Thread(r,"workerProducer" + mCount.getAndIncrement());
             }
         });
-        for(int i=1; i<4; i++) {
+        for(int i=1; i<2; i++) {
             int num = i;
             executorService.submit(() -> {
                 // 3个生产者线程，每个生产者并发发布100个事件
