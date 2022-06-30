@@ -314,6 +314,7 @@ public class MySequenceBarrier {
   **isAvailable方法相当于对setAvailable做了个逆运算，如果对应的序列号确实已经发布过了，那么availableBuffer对应下标的值一定做了对数运算的值，否则就是还未发布。**
 * 由于在next方法中控制、约束了可申请到的生产者序列号不会超过最慢的生产者一轮（ringBuffer的长度），因此不用担心位于不同轮次的序列号发布会互相覆盖。
   如果没有next方法中的最大差异约束，之前举例的场景中，ringBuffer长度为8，此时序列号10还未发布，序列号18却发布了，则availableBuffer中下标为2的位置就被覆盖了（无法真实记录序列号10是否发布）。
+  也正是因为有了这个约束，在setAvailable中可以不需要做额外的校验直接更新就行。
 ### MyProducerSequencer接口统一两种类型的生产者
 disruptor需要支持单线程、多线程两种类型的生产者。所以抽象了一个生产者序列器接口ProducerSequencer用于兼容两者的差异。
 ```java
