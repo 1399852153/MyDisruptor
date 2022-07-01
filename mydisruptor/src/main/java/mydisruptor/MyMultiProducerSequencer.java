@@ -2,6 +2,7 @@ package mydisruptor;
 
 import mydisruptor.util.SequenceUtil;
 import mydisruptor.waitstrategy.MyWaitStrategy;
+import sun.misc.Unsafe;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,6 +23,10 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     private final int[] availableBuffer;
     private final int indexMask;
     private final int indexShift;
+
+//    private static final Unsafe UNSAFE = Util.getUnsafe();
+//    private static final long BASE = UNSAFE.arrayBaseOffset(int[].class);
+//    private static final long SCALE = UNSAFE.arrayIndexScale(int[].class);
 
     public MyMultiProducerSequencer(int ringBufferSize, final MyWaitStrategy myWaitStrategy) {
         this.ringBufferSize = ringBufferSize;
@@ -98,7 +103,6 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     @Override
     public void publish(long publishIndex) {
         setAvailable(publishIndex);
-        System.out.println("publishIndex=" + publishIndex + " " + Arrays.toString(this.availableBuffer));
         this.myWaitStrategy.signalWhenBlocking();
     }
 

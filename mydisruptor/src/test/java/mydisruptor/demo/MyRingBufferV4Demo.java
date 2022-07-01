@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MyRingBufferV4Demo {
 
     public static void main(String[] args) {
-        // 环形队列容量为16（2的4次方）
-        int ringBufferSize = 8;
+        // 环形队列容量
+        int ringBufferSize = 16;
 
         // 创建环形队列(多线程生产者，即多线程安全的生产者（可以并发的next、publish）)
         MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createMultiProducer(
