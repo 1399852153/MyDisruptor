@@ -49,6 +49,7 @@ disruptor多线程生产者的next方法实现和单线程生产者原理差不�
  * 多线程生产者（仿disruptor.MultiProducerSequencer）
  */
 public class MyMultiProducerSequencer implements MyProducerSequencer{
+
     private final int ringBufferSize;
     private final MySequence currentProducerSequence = new MySequence();
     private final List<MySequence> gatingConsumerSequenceList = new ArrayList<>();
@@ -58,6 +59,13 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     private final int[] availableBuffer;
     private final int indexMask;
     private final int indexShift;
+
+    /**
+     * 通过unsafe访问availableBuffer数组，可以在读写时按需插入读/写内存屏障
+     */
+    private static final Unsafe UNSAFE = UnsafeUtil.getUnsafe();
+    private static final long BASE = UNSAFE.arrayBaseOffset(int[].class);
+    private static final long SCALE = UNSAFE.arrayIndexScale(int[].class);
 
     public MyMultiProducerSequencer(int ringBufferSize, final MyWaitStrategy myWaitStrategy) {
         this.ringBufferSize = ringBufferSize;
@@ -190,7 +198,13 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     private void setAvailable(long sequence){
         int index = calculateIndex(sequence);
         int flag = calculateAvailabilityFlag(sequence);
-        this.availableBuffer[index] = flag;
+
+        // 计算index对应下标相对于availableBuffer引用起始位置的指针偏移量
+        long bufferAddress = (index * SCALE) + BASE;
+
+        // 功能上等价于this.availableBuffer[index] = flag，但添加了写屏障防止和对事件对象的更新逻辑之间出现重排序
+        // 和单线程生产者中的lazySet作用一样，保证了对publish发布的event事件对象的更新一定先于对availableBuffer对应下标值的更新
+        UNSAFE.putOrderedInt(availableBuffer, bufferAddress, flag);
     }
 
     private int calculateAvailabilityFlag(long sequence) {
@@ -204,7 +218,13 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     public boolean isAvailable(long sequence) {
         int index = calculateIndex(sequence);
         int flag = calculateAvailabilityFlag(sequence);
-        return this.availableBuffer[index] == flag;
+
+        // 计算index对应下标相对于availableBuffer引用起始位置的指针偏移量
+        long bufferAddress = (index * SCALE) + BASE;
+
+        // 功能上等价于this.availableBuffer[index] == flag
+        // 但是添加了读屏障保证了强一致的读，可以让消费者实时的获取到生产者新的发布
+        return UNSAFE.getIntVolatile(availableBuffer, bufferAddress) == flag;
     }
 }
 ```
@@ -258,6 +278,28 @@ public class MySequence {
 
     public boolean compareAndSet(long expect, long update){
         return UNSAFE.compareAndSwapLong(this, VALUE_OFFSET, expect, update);
+    }
+}
+```
+```java
+public class UnsafeUtil {
+
+    private static final Unsafe UNSAFE;
+
+    static {
+        try {
+            // 由于提供给cas内存中字段偏移量的unsafe类只能在被jdk信任的类中直接使用，这里使用反射来绕过这一限制
+            Field getUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+            getUnsafe.setAccessible(true);
+            UNSAFE = (Unsafe) getUnsafe.get(null);
+        }
+        catch (final Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static Unsafe getUnsafe(){
+        return UNSAFE;
     }
 }
 ```
@@ -397,6 +439,106 @@ public interface MyProducerSequencer {
 }
 ```
 # MyDisruptor v4版本demo解析
+```java
+public class MyRingBufferV4Demo {
+
+    public static void main(String[] args) {
+        // 环形队列容量
+        int ringBufferSize = 16;
+
+        // 创建环形队列(多线程生产者，即多线程安全的生产者（可以并发的next、publish）)
+        MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createMultiProducer(
+                new OrderEventProducer(), ringBufferSize, new MyBusySpinWaitStrategy());
+
+        // 获得ringBuffer的序列屏障（最上游的序列屏障内只维护生产者的序列）
+        MySequenceBarrier mySequenceBarrier = myRingBuffer.newBarrier();
+
+        // ================================== 基于生产者序列屏障，创建消费者A
+        MyBatchEventProcessor<OrderEventModel> eventProcessorA =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerA"), mySequenceBarrier);
+        MySequence consumeSequenceA = eventProcessorA.getCurrentConsumeSequence();
+        // RingBuffer监听消费者A的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceA);
+
+        // ================================== 消费者组依赖上游的消费者A，通过消费者A的序列号创建序列屏障（构成消费的顺序依赖）
+        MySequenceBarrier workerSequenceBarrier = myRingBuffer.newBarrier(consumeSequenceA);
+        // 基于序列屏障，创建多线程消费者B
+        MyWorkerPool<OrderEventModel> workerPoolProcessorB =
+                new MyWorkerPool<>(myRingBuffer, workerSequenceBarrier,
+                        new OrderWorkHandlerDemo("workerHandler1"),
+                        new OrderWorkHandlerDemo("workerHandler2"),
+                        new OrderWorkHandlerDemo("workerHandler3"));
+        MySequence[] workerSequences = workerPoolProcessorB.getCurrentWorkerSequences();
+        // RingBuffer监听消费者C的序列
+        myRingBuffer.addGatingConsumerSequenceList(workerSequences);
+
+        // ================================== 通过消费者A的序列号创建序列屏障（构成消费的顺序依赖），创建消费者C
+        MySequenceBarrier mySequenceBarrierC = myRingBuffer.newBarrier(consumeSequenceA);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorC =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerC"), mySequenceBarrierC);
+        MySequence consumeSequenceC = eventProcessorC.getCurrentConsumeSequence();
+        // RingBuffer监听消费者C的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceC);
+
+        // ================================== 基于多线程消费者B，单线程消费者C的序列屏障，创建消费者D
+        MySequence[] bAndCSequenceArr = new MySequence[workerSequences.length+1];
+        // 把多线程消费者B的序列复制到合并的序列数组中
+        System.arraycopy(workerSequences, 0, bAndCSequenceArr, 0, workerSequences.length);
+        // 数组的最后一位是消费者C的序列
+        bAndCSequenceArr[bAndCSequenceArr.length-1] = consumeSequenceC;
+        MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(bAndCSequenceArr);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorD =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
+        MySequence consumeSequenceD = eventProcessorD.getCurrentConsumeSequence();
+        // RingBuffer监听消费者D的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
+
+
+        // 启动消费者线程A
+        new Thread(eventProcessorA).start();
+
+        // 启动workerPool多线程消费者B
+        workerPoolProcessorB.start(Executors.newFixedThreadPool(10, new ThreadFactory() {
+            private final AtomicInteger mCount = new AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) {
+                return new Thread(r,"worker" + mCount.getAndIncrement());
+            }
+        }));
+
+        // 启动消费者线程C
+        new Thread(eventProcessorC).start();
+        // 启动消费者线程D
+        new Thread(eventProcessorD).start();
+
+        // 启动多线程生产者
+        ExecutorService executorService = Executors.newFixedThreadPool(10, new ThreadFactory() {
+            private final AtomicInteger mCount = new AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) {
+                return new Thread(r,"workerProducer" + mCount.getAndIncrement());
+            }
+        });
+        for(int i=1; i<4; i++) {
+            int num = i;
+            executorService.submit(() -> {
+                // 每个生产者并发发布100个事件
+                for (int j = 0; j < 100; j++) {
+                    long nextIndex = myRingBuffer.next();
+                    OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
+                    orderEvent.setMessage("message-" + num + "-" + j);
+                    orderEvent.setPrice(num * j * 10);
+                    myRingBuffer.publish(nextIndex);
+                }
+            });
+        }
+    }
+}
+```
 todo 待完善
 
 # 总结

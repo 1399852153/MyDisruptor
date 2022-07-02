@@ -1,6 +1,7 @@
 package mydisruptor;
 
 import mydisruptor.util.SequenceUtil;
+import mydisruptor.util.UnsafeUtil;
 import mydisruptor.waitstrategy.MyWaitStrategy;
 import sun.misc.Unsafe;
 
@@ -24,9 +25,12 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     private final int indexMask;
     private final int indexShift;
 
-//    private static final Unsafe UNSAFE = Util.getUnsafe();
-//    private static final long BASE = UNSAFE.arrayBaseOffset(int[].class);
-//    private static final long SCALE = UNSAFE.arrayIndexScale(int[].class);
+    /**
+     * 通过unsafe访问availableBuffer数组，可以在读写时按需插入读/写内存屏障
+     */
+    private static final Unsafe UNSAFE = UnsafeUtil.getUnsafe();
+    private static final long BASE = UNSAFE.arrayBaseOffset(int[].class);
+    private static final long SCALE = UNSAFE.arrayIndexScale(int[].class);
 
     public MyMultiProducerSequencer(int ringBufferSize, final MyWaitStrategy myWaitStrategy) {
         this.ringBufferSize = ringBufferSize;
@@ -159,7 +163,13 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     private void setAvailable(long sequence){
         int index = calculateIndex(sequence);
         int flag = calculateAvailabilityFlag(sequence);
-        this.availableBuffer[index] = flag;
+
+        // 计算index对应下标相对于availableBuffer引用起始位置的指针偏移量
+        long bufferAddress = (index * SCALE) + BASE;
+
+        // 功能上等价于this.availableBuffer[index] = flag，但添加了写屏障防止和对事件对象的更新逻辑之间出现重排序
+        // 和单线程生产者中的lazySet作用一样，保证了对publish发布的event事件对象的更新一定先于对availableBuffer对应下标值的更新
+        UNSAFE.putOrderedInt(availableBuffer, bufferAddress, flag);
     }
 
     private int calculateAvailabilityFlag(long sequence) {
@@ -173,6 +183,12 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
     public boolean isAvailable(long sequence) {
         int index = calculateIndex(sequence);
         int flag = calculateAvailabilityFlag(sequence);
-        return this.availableBuffer[index] == flag;
+
+        // 计算index对应下标相对于availableBuffer引用起始位置的指针偏移量
+        long bufferAddress = (index * SCALE) + BASE;
+
+        // 功能上等价于this.availableBuffer[index] == flag
+        // 但是添加了读屏障保证了强一致的读，可以让消费者实时的获取到生产者新的发布
+        return UNSAFE.getIntVolatile(availableBuffer, bufferAddress) == flag;
     }
 }

@@ -4,6 +4,7 @@ import mydisruptor.*;
 import mydisruptor.model.OrderEventModel;
 import mydisruptor.model.OrderEventProducer;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
+import mydisruptor.waitstrategy.MyBusySpinWaitStrategy;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,7 +19,7 @@ public class MyRingBufferV4Demo {
 
         // 创建环形队列(多线程生产者，即多线程安全的生产者（可以并发的next、publish）)
         MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createMultiProducer(
-                new OrderEventProducer(), ringBufferSize, new MyBlockingWaitStrategy());
+                new OrderEventProducer(), ringBufferSize, new MyBusySpinWaitStrategy());
 
         // 获得ringBuffer的序列屏障（最上游的序列屏障内只维护生产者的序列）
         MySequenceBarrier mySequenceBarrier = myRingBuffer.newBarrier();
