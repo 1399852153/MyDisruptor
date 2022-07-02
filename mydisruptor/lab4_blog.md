@@ -202,8 +202,9 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
         // 计算index对应下标相对于availableBuffer引用起始位置的指针偏移量
         long bufferAddress = (index * SCALE) + BASE;
 
-        // 功能上等价于this.availableBuffer[index] = flag，但添加了写屏障防止和对事件对象的更新逻辑之间出现重排序
+        // 功能上等价于this.availableBuffer[index] = flag，但添加了写屏障
         // 和单线程生产者中的lazySet作用一样，保证了对publish发布的event事件对象的更新一定先于对availableBuffer对应下标值的更新
+        // 避免消费者拿到新的发布序列号时由于新event事件未对其可见，而错误的消费了之前老的event事件
         UNSAFE.putOrderedInt(availableBuffer, bufferAddress, flag);
     }
 
