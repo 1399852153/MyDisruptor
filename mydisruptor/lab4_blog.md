@@ -359,13 +359,17 @@ public class MySequenceBarrier {
   如果没有next方法中的最大差异约束，之前举例的场景中，ringBuffer长度为8，此时序列号10还未发布，序列号18却发布了，则availableBuffer中下标为2的位置就被覆盖了（无法真实记录序列号10是否发布）。
   也正是因为有了这个约束，在setAvailable中可以不需要做额外的校验直接更新就行。
 
-##### unsafe+偏移量访问数组的工作原理
-* lazySet弱一致的写availableBuffer数组
-* volatile强一致的读availableBuffer数组
-todo 待完善
-todo 待完善
-todo 待完善
-
+##### Unsafe+偏移量访问数组解析
+在lab1中提到单线程的生产者SingleProducerSequencer在publish方法中通过一个lazySet方法设置了一个写内存屏障，使得对entry事件对象的更新操作一定先于对序列号的更新，且消费者也是使用读屏障进行强一致的读，避免指令重排序和高速缓存同步延迟导致消费者线程消费到错误的事件。  
+那么在多线程生产者中，由于引入了一个availableBuffer数组，并且在消费者调用了isAvailable对其进行了访问。那么对于数组应该如何插入读、写屏障呢？
+* 首先，随便新增一个无业务含义的Atomic原子类进行lazySet带写屏障的更新和volatile强一致的读在实现上是可行的，但性能不佳也不太优雅。
+* java的unsafe类提供了一些基础的方法，可以在读、写数组时按需设置读写内存屏障；其底层是通过计算对应下标数据在数组中的指针偏移量实现的。
+* 获取数组中对应下标数据的偏移值主要取决于两个属性：数组对象实际存放数据至数组引用的偏移base和每一个数据所占用的空间大小scale  
+  数组对象实际存放数据的起始位置base：java中数组也是一个对象，在内存分配时需要设置对象头、类指针、数组长度信息，因此实际存放数据的位置相对于数组引用是有一定偏移的，需要通过UNSAFE.arrayBaseOffset获得具体的偏移  
+  每一个数据所占用的空间大小scale：不同类型的数组中所存储的数据大小是不一样的，比如int类型数组中每一个数据占4个字节，而long类型数组中每一个数据则占8个字节  
+  ![数组内存排布.png](数组内存排布.png)
+* 和单线程生产者中一样，发布时setAvailable方法通过UNSAFE.putOrderedInt在更新前插入一个写屏障。
+* 在getHighestPublishedSequence的isAvailable方法中，消费者线程通过UNSAFE.getIntVolatile强一致的读取数组中对应下标的值。
 ### MyProducerSequencer接口统一两种类型的生产者
 disruptor需要支持单线程、多线程两种类型的生产者。所以抽象了一个生产者序列器接口ProducerSequencer用于兼容两者的差异。
 ```java
@@ -540,9 +544,10 @@ public class MyRingBufferV4Demo {
     }
 }
 ```
-todo 待完善
 
 # 总结
 * disruptor的多线程生产者实现中通过一个与当前RingBuffer一样大小的数组availableBuffer，利用覆盖的机制巧妙的维护了每个序列号的发布状态。  
   巧妙的拆分了
+* 使用基于Unsafe + 偏移量的机制读写数组，除了可以引入内存屏障，还绕过了java正常访问数组时的下标越界检查。
+  这样的实现就和C语言中一样，运行时不校验下标是否越界，略微提高性能的同时也引入了野指针问题，使得下标真的越界时会出现各种奇怪的问题，需要程序员更加仔细的编码（这也是为什么这种接口会放在Unsafe类里）。
 
