@@ -3,7 +3,6 @@ package mydisruptor.demo;
 import mydisruptor.*;
 import mydisruptor.model.OrderEventModel;
 import mydisruptor.model.OrderEventProducer;
-import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
 import mydisruptor.waitstrategy.MyBusySpinWaitStrategy;
 
 import java.util.concurrent.ExecutorService;
@@ -13,6 +12,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class MyRingBufferV4Demo {
 
+    /**
+     *              -> 多线程消费者B（依赖A）
+     * 单线程消费者A                       -> 单线程消费者D（依赖B、C）
+     *              -> 单线程消费者C（依赖A）
+     * */
     public static void main(String[] args) {
         // 环形队列容量
         int ringBufferSize = 16;
