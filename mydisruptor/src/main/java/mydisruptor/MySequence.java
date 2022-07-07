@@ -1,5 +1,6 @@
 package mydisruptor;
 
+import mydisruptor.util.UnsafeUtil;
 import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;
@@ -12,7 +13,7 @@ import java.lang.reflect.Field;
 public class MySequence {
 
     /**
-     * 序列起始值默认为-1，保证下一序列恰好是0（即第一个合法的序列号）
+     * 序列起始值默认为-1，保证下一个序列恰好是0（即第一个合法的序列号）
      * */
     private volatile long value = -1;
 
@@ -21,10 +22,7 @@ public class MySequence {
 
     static {
         try {
-            // 由于提供给cas内存中字段偏移量的unsafe类只能在被jdk信任的类中直接使用，这里使用反射来绕过这一限制
-            Field getUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
-            getUnsafe.setAccessible(true);
-            UNSAFE = (Unsafe) getUnsafe.get(null);
+            UNSAFE = UnsafeUtil.getUnsafe();
             VALUE_OFFSET = UNSAFE.objectFieldOffset(MySequence.class.getDeclaredField("value"));
         }
         catch (final Exception e) {

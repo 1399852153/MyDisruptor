@@ -14,7 +14,7 @@ import java.util.concurrent.locks.LockSupport;
  *
  * 因为是单线程序列器，因此在设计上就是线程不安全的
  * */
-public class MySingleProducerSequencer {
+public class MySingleProducerSequencer implements MyProducerSequencer{
 
     /**
      * 生产者序列器所属ringBuffer的大小
@@ -57,6 +57,7 @@ public class MySingleProducerSequencer {
     /**
      * 一次性申请可用的1个生产者序列号
      * */
+    @Override
     public long next(){
         return next(1);
     }
@@ -64,6 +65,7 @@ public class MySingleProducerSequencer {
     /**
      * 一次性申请可用的n个生产者序列号
      * */
+    @Override
     public long next(int n){
         // 申请的下一个生产者位点
         long nextProducerSequence = this.nextValue + n;
@@ -102,6 +104,7 @@ public class MySingleProducerSequencer {
         return nextProducerSequence;
     }
 
+    @Override
     public void publish(long publishIndex){
         // 发布时，更新生产者队列
         // lazySet，由于消费者可以批量的拉取数据，所以不必每次发布时都volatile的更新，允许消费者晚一点感知到，这样性能会更好
@@ -112,27 +115,38 @@ public class MySingleProducerSequencer {
         this.myWaitStrategy.signalWhenBlocking();
     }
 
+    @Override
     public MySequenceBarrier newBarrier(){
-        return new MySequenceBarrier(this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>());
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>());
     }
 
+    @Override
     public MySequenceBarrier newBarrier(MySequence... dependenceSequences){
-        return new MySequenceBarrier(this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>(Arrays.asList(dependenceSequences)));
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>(Arrays.asList(dependenceSequences)));
     }
 
+    @Override
     public void addGatingConsumerSequenceList(MySequence newGatingConsumerSequence){
         this.gatingConsumerSequenceList.add(newGatingConsumerSequence);
     }
 
+    @Override
     public void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences){
         this.gatingConsumerSequenceList.addAll(Arrays.asList(newGatingConsumerSequences));
     }
 
+    @Override
     public MySequence getCurrentProducerSequence() {
         return currentProducerSequence;
     }
 
+    @Override
     public int getRingBufferSize() {
         return ringBufferSize;
+    }
+
+    @Override
+    public long getHighestPublishedSequence(long nextSequence, long availableSequence) {
+        return availableSequence;
     }
 }
