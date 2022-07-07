@@ -18,22 +18,20 @@ public class MyEventHandlerGroup<T> {
         this.sequences = sequences;
     }
 
-    public final MyEventHandlerGroup<T> then(final MyEventHandler<? super T>... myEventConsumers) {
+    public final MyEventHandlerGroup<T> then(final MyEventHandler<T>... myEventConsumers) {
         return handleEventsWith(myEventConsumers);
     }
 
-    public final MyEventHandlerGroup<T> handleEventsWith(final MyEventHandler<? super T>... handlers) {
-//        return disruptor.createEventProcessors(sequences, handlers);
-        return null;
+    public final MyEventHandlerGroup<T> handleEventsWith(final MyEventHandler<T>... handlers) {
+        return disruptor.createEventProcessors(sequences, handlers);
     }
 
-    public final MyEventHandlerGroup<T> thenHandleEventsWithWorkerPool(final MyWorkHandler<? super T>... handlers) {
+    public final MyEventHandlerGroup<T> thenHandleEventsWithWorkerPool(final MyWorkHandler<T>... handlers) {
         return handleEventsWithWorkerPool(handlers);
     }
 
-    public final MyEventHandlerGroup<T> handleEventsWithWorkerPool(final MyWorkHandler<? super T>... handlers) {
-//        return disruptor.createEventProcessors(sequences, handlers);
-        return null;
+    public final MyEventHandlerGroup<T> handleEventsWithWorkerPool(final MyWorkHandler<T>... handlers) {
+        return disruptor.createWorkerPool(sequences, handlers);
     }
 }
 

@@ -105,4 +105,14 @@ public class MyDisruptor<T> {
             }
         }
     }
+
+    /**
+     * 启动所有已注册的消费者
+     * */
+    public void start(){
+        // 遍历所有的消费者，挨个start启动
+        this.consumerRepository.getConsumerInfos().forEach(
+                item->item.start(this.executor)
+        );
+    }
 }
