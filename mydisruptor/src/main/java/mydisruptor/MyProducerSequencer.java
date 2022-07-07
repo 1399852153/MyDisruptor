@@ -41,13 +41,19 @@ public interface MyProducerSequencer {
      * 向生产者注册一个消费者序列
      * @param newGatingConsumerSequence 新的消费者序列
      * */
-    void addGatingConsumerSequenceList(MySequence newGatingConsumerSequence);
+    void addGatingConsumerSequence(MySequence newGatingConsumerSequence);
 
     /**
      * 向生产者注册一个消费者序列集合
      * @param newGatingConsumerSequences 新的消费者序列集合
      * */
     void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences);
+
+    /**
+     * 从生产者注册的消费者序列中移除目标序列
+     * @param sequenceNeedRemove 待移除的目标序列
+     * */
+    void removeConsumerSequence(MySequence sequenceNeedRemove);
 
     /**
      * 获得当前的生产者序列（cursor）

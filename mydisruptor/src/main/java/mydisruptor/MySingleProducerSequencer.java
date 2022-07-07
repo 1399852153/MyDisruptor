@@ -126,13 +126,18 @@ public class MySingleProducerSequencer implements MyProducerSequencer{
     }
 
     @Override
-    public void addGatingConsumerSequenceList(MySequence newGatingConsumerSequence){
+    public void addGatingConsumerSequence(MySequence newGatingConsumerSequence){
         this.gatingConsumerSequenceList.add(newGatingConsumerSequence);
     }
 
     @Override
     public void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences){
         this.gatingConsumerSequenceList.addAll(Arrays.asList(newGatingConsumerSequences));
+    }
+
+    @Override
+    public void removeConsumerSequence(MySequence sequenceNeedRemove) {
+        this.gatingConsumerSequenceList.remove(sequenceNeedRemove);
     }
 
     @Override

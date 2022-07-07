@@ -1,7 +1,10 @@
 package mydisruptor;
 
 import mydisruptor.api.MyEventFactory;
+import mydisruptor.dsl.ProducerType;
 import mydisruptor.waitstrategy.MyWaitStrategy;
+
+import java.util.Arrays;
 
 /**
  * 环形队列（仿Disruptor.RingBuffer）
@@ -70,6 +73,18 @@ public class MyRingBuffer<T> {
         return this.myProducerSequencer.newBarrier(dependenceSequences);
     }
 
+    public void addConsumerSequence(MySequence consumerSequence){
+        this.myProducerSequencer.addGatingConsumerSequence(consumerSequence);
+    }
+
+    public void addConsumerSequence(MySequence... gatingSequences) {
+        this.myProducerSequencer.addGatingConsumerSequenceList(gatingSequences);
+    }
+
+    public void removeConsumerSequence(MySequence consumerSequence){
+        this.myProducerSequencer.removeConsumerSequence(consumerSequence);
+    }
+
     public static <E> MyRingBuffer<E> createSingleProducer(MyEventFactory<E> factory, int bufferSize, MyWaitStrategy waitStrategy) {
         MySingleProducerSequencer sequencer = new MySingleProducerSequencer(bufferSize, waitStrategy);
         return new MyRingBuffer<>(sequencer,factory);
@@ -78,5 +93,35 @@ public class MyRingBuffer<T> {
     public static <E> MyRingBuffer<E> createMultiProducer(MyEventFactory<E> factory, int bufferSize, MyWaitStrategy waitStrategy) {
         MyMultiProducerSequencer sequencer = new MyMultiProducerSequencer(bufferSize, waitStrategy);
         return new MyRingBuffer<>(sequencer,factory);
+    }
+
+    /**
+     * 创建RingBuffer
+     * @param producerType 生产者类型（单线程生产者 or 多线程生产者）
+     * @param eventFactory 用户自定义的事件工厂
+     * @param bufferSize ringBuffer的容量
+     * @param myWaitStrategy 指定的消费者阻塞策略
+     * */
+    public static <T> MyRingBuffer<T> create(
+            ProducerType producerType, MyEventFactory<T> eventFactory, int bufferSize, MyWaitStrategy myWaitStrategy) {
+        switch (producerType) {
+            case SINGLE: {
+                MySingleProducerSequencer singleProducerSequencerV5 = new MySingleProducerSequencer(bufferSize, myWaitStrategy);
+                return new MyRingBuffer<>(singleProducerSequencerV5, eventFactory);
+            }
+            case MULTI: {
+                MyMultiProducerSequencer multiProducerSequencer = new MyMultiProducerSequencer(bufferSize, myWaitStrategy);
+                return new MyRingBuffer<>(multiProducerSequencer, eventFactory);
+            }
+            default:
+                throw new RuntimeException("un support producerType:" + producerType.toString());
+        }
+    }
+
+    /**
+     * 获得当前RingBuffer的大小
+     * */
+    public int getRingBufferSize() {
+        return ringBufferSize;
     }
 }

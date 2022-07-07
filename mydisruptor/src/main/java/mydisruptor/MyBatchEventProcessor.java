@@ -6,7 +6,7 @@ import mydisruptor.util.LogUtil;
 /**
  * 单线程消费者（仿Disruptor.BatchEventProcessor）
  * */
-public class MyBatchEventProcessor<T> implements Runnable {
+public class MyBatchEventProcessor<T> implements MyEventProcessor{
 
     private final MySequence currentConsumeSequence = new MySequence(-1);
     private final MyRingBuffer<T> myRingBuffer;
@@ -50,6 +50,7 @@ public class MyBatchEventProcessor<T> implements Runnable {
         }
     }
 
+    @Override
     public MySequence getCurrentConsumeSequence() {
         return this.currentConsumeSequence;
     }

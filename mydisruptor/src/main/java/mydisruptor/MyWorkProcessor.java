@@ -6,7 +6,7 @@ import mydisruptor.api.MyWorkHandler;
 /**
  * 多线程消费者工作线程 （仿Disruptor.WorkProcessor）
  * */
-public class MyWorkProcessor<T> implements Runnable{
+public class MyWorkProcessor<T> implements MyEventProcessor{
 
     private final MySequence currentConsumeSequence = new MySequence(-1);
     private final MyRingBuffer<T> myRingBuffer;
@@ -25,6 +25,7 @@ public class MyWorkProcessor<T> implements Runnable{
         this.workGroupSequence = workGroupSequence;
     }
 
+    @Override
     public MySequence getCurrentConsumeSequence() {
         return currentConsumeSequence;
     }
