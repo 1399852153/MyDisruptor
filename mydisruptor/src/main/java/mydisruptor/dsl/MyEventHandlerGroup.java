@@ -21,18 +21,22 @@ public class MyEventHandlerGroup<T> {
         this.sequences = sequences;
     }
 
+    @SafeVarargs
     public final MyEventHandlerGroup<T> then(final MyEventHandler<T>... myEventHandlers) {
         return handleEventsWith(myEventHandlers);
     }
 
+    @SafeVarargs
     public final MyEventHandlerGroup<T> handleEventsWith(final MyEventHandler<T>... handlers) {
         return disruptor.createEventProcessors(sequences, handlers);
     }
 
+    @SafeVarargs
     public final MyEventHandlerGroup<T> thenHandleEventsWithWorkerPool(final MyWorkHandler<T>... handlers) {
         return handleEventsWithWorkerPool(handlers);
     }
 
+    @SafeVarargs
     public final MyEventHandlerGroup<T> handleEventsWithWorkerPool(final MyWorkHandler<T>... handlers) {
         return disruptor.createWorkerPool(sequences, handlers);
     }

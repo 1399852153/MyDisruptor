@@ -33,7 +33,8 @@ public class MyDisruptor<T> {
     /**
      * 注册单线程消费者 (无上游依赖消费者，仅依赖生产者序列)
      * */
-    public MyEventHandlerGroup<T> handleEventsWith(final MyEventHandler<T>... myEventHandlers){
+    @SafeVarargs
+    public final MyEventHandlerGroup<T> handleEventsWith(final MyEventHandler<T>... myEventHandlers){
         return createEventProcessors(new MySequence[0], myEventHandlers);
     }
 
@@ -52,7 +53,7 @@ public class MyDisruptor<T> {
         int i=0;
         for(MyEventHandler<T> myEventConsumer : myEventHandlers){
             final MyBatchEventProcessor<T> batchEventProcessor =
-                    new MyBatchEventProcessor<T>(ringBuffer, myEventConsumer, barrier);
+                    new MyBatchEventProcessor<>(ringBuffer, myEventConsumer, barrier);
 
             processorSequences[i] = batchEventProcessor.getCurrentConsumeSequence();
             i++;
@@ -70,6 +71,7 @@ public class MyDisruptor<T> {
     /**
      * 注册多线程消费者 (无上游依赖消费者，仅依赖生产者序列)
      * */
+    @SafeVarargs
     public final MyEventHandlerGroup<T> handleEventsWithWorkerPool(final MyWorkHandler<T>... myWorkHandlers) {
         return createWorkerPool(new MySequence[0], myWorkHandlers);
     }
@@ -82,7 +84,7 @@ public class MyDisruptor<T> {
     public MyEventHandlerGroup<T> createWorkerPool(
             final MySequence[] barrierSequences, final MyWorkHandler<T>[] myWorkHandlers) {
         final MySequenceBarrier sequenceBarrier = ringBuffer.newBarrier(barrierSequences);
-        final MyWorkerPool<T> workerPool = new MyWorkerPool<T>(ringBuffer, sequenceBarrier, myWorkHandlers);
+        final MyWorkerPool<T> workerPool = new MyWorkerPool<>(ringBuffer, sequenceBarrier, myWorkHandlers);
 
         // consumer都保存起来，便于start启动
         consumerRepository.add(workerPool);
