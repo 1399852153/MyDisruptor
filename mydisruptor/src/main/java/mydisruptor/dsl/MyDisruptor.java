@@ -7,13 +7,17 @@ import mydisruptor.api.MyWorkHandler;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * disruptor dsl(仿Disruptor.Disruptor)
+ * */
 public class MyDisruptor<T> {
 
     private final MyRingBuffer<T> ringBuffer;
     private final Executor executor;
     private final MyConsumerRepository<T> consumerRepository = new MyConsumerRepository<>();
-
+    private final AtomicBoolean started = new AtomicBoolean(false);
 
     public MyDisruptor(
             final MyEventFactory<T> eventProducer,
@@ -87,7 +91,7 @@ public class MyDisruptor<T> {
 
         updateGatingSequencesForNextInChain(barrierSequences, workerSequences);
 
-        return new MyEventHandlerGroup<T>(this, consumerRepository,workerSequences);
+        return new MyEventHandlerGroup<>(this, consumerRepository,workerSequences);
     }
 
     private void updateGatingSequencesForNextInChain(final MySequence[] barrierSequences, final MySequence[] processorSequences) {
@@ -110,9 +114,21 @@ public class MyDisruptor<T> {
      * 启动所有已注册的消费者
      * */
     public void start(){
+        // cas设置启动标识，避免重复启动
+        if (!started.compareAndSet(false, true)) {
+            throw new IllegalStateException("Disruptor只能启动一次");
+        }
+
         // 遍历所有的消费者，挨个start启动
         this.consumerRepository.getConsumerInfos().forEach(
                 item->item.start(this.executor)
         );
+    }
+
+    /**
+     * 获得当亲Disruptor的ringBuffer
+     * */
+    public MyRingBuffer<T> getRingBuffer() {
+        return ringBuffer;
     }
 }

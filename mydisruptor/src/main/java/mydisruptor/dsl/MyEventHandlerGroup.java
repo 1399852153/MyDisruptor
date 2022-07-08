@@ -4,6 +4,9 @@ import mydisruptor.MySequence;
 import mydisruptor.api.MyEventHandler;
 import mydisruptor.api.MyWorkHandler;
 
+/**
+ * 事件处理器组（仿Disruptor.EventHandlerGroup）
+ * */
 public class MyEventHandlerGroup<T> {
 
     private final MyDisruptor<T> disruptor;
@@ -18,8 +21,8 @@ public class MyEventHandlerGroup<T> {
         this.sequences = sequences;
     }
 
-    public final MyEventHandlerGroup<T> then(final MyEventHandler<T>... myEventConsumers) {
-        return handleEventsWith(myEventConsumers);
+    public final MyEventHandlerGroup<T> then(final MyEventHandler<T>... myEventHandlers) {
+        return handleEventsWith(myEventHandlers);
     }
 
     public final MyEventHandlerGroup<T> handleEventsWith(final MyEventHandler<T>... handlers) {
