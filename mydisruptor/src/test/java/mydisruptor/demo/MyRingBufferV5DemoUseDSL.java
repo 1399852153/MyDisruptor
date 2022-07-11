@@ -2,6 +2,7 @@ package mydisruptor.demo;
 
 import mydisruptor.MyRingBuffer;
 import mydisruptor.dsl.MyDisruptor;
+import mydisruptor.dsl.MyEventHandlerGroup;
 import mydisruptor.dsl.ProducerType;
 import mydisruptor.model.OrderEventModel;
 import mydisruptor.model.OrderEventProducer;
@@ -16,6 +17,7 @@ public class MyRingBufferV5DemoUseDSL {
     /**
      * 消费者依赖关系图（简单起见都是单线程消费者）：
      * A -> BC -> D
+     *   -> E -> F
      * */
     public static void main(String[] args) {
         // 环形队列容量为16（2的4次方）
@@ -28,9 +30,13 @@ public class MyRingBufferV5DemoUseDSL {
                 new MyBlockingWaitStrategy()
         );
 
-        myDisruptor.handleEventsWith(new OrderEventHandlerDemo("consumerA"))
-                .then(new OrderEventHandlerDemo("consumerB"),new OrderEventHandlerDemo("consumerC"))
+        MyEventHandlerGroup<OrderEventModel> hasAHandlerGroup = myDisruptor.handleEventsWith(new OrderEventHandlerDemo("consumerA"));
+
+        hasAHandlerGroup.then(new OrderEventHandlerDemo("consumerB"),new OrderEventHandlerDemo("consumerC"))
                 .then(new OrderEventHandlerDemo("consumerD"));
+
+        hasAHandlerGroup.then(new OrderEventHandlerDemo("consumerE"))
+                .then(new OrderEventHandlerDemo("consumerF"));
         // 启动disruptor中注册的所有消费者
         myDisruptor.start();
 
