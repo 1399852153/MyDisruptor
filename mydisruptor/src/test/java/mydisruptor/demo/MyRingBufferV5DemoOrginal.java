@@ -18,6 +18,7 @@ public class MyRingBufferV5DemoOrginal {
     /**
      * 消费者依赖关系图（简单起见都是单线程消费者）：
      * A -> BC -> D
+     *   -> E -> F
      * */
     public static void main(String[] args) {
         // 环形队列容量为16（2的4次方）
@@ -64,6 +65,24 @@ public class MyRingBufferV5DemoOrginal {
         // RingBuffer监听消费者D的序列
         myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
 
+        // ================================== 通过消费者A的序列号创建序列屏障（构成消费的顺序依赖），创建消费者E
+        MySequenceBarrier mySequenceBarrierE = myRingBuffer.newBarrier(consumeSequenceA);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorE =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerE"), mySequenceBarrierE);
+        MySequence consumeSequenceE = eventProcessorE.getCurrentConsumeSequence();
+        // RingBuffer监听消费者E的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceE);
+
+        // ================================== 通过消费者E的序列号创建序列屏障（构成消费的顺序依赖），创建消费者F
+        MySequenceBarrier mySequenceBarrierF = myRingBuffer.newBarrier(consumeSequenceE);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorF =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerF"), mySequenceBarrierF);
+        MySequence consumeSequenceF = eventProcessorF.getCurrentConsumeSequence();
+        // RingBuffer监听消费者F的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceF);
+
         Executor executor = new ThreadPoolExecutor(10, 10, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
         // 启动消费者线程A
         executor.execute(eventProcessorA);
@@ -73,6 +92,10 @@ public class MyRingBufferV5DemoOrginal {
         executor.execute(eventProcessorC);
         // 启动消费者线程D
         executor.execute(eventProcessorD);
+        // 启动消费者线程E
+        executor.execute(eventProcessorE);
+        // 启动消费者线程F
+        executor.execute(eventProcessorF);
 
         // 生产者发布100个事件
         for(int i=0; i<100; i++) {

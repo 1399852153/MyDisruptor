@@ -5,6 +5,7 @@ import mydisruptor.api.MyEventFactory;
 import mydisruptor.api.MyEventHandler;
 import mydisruptor.api.MyWorkHandler;
 import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
+import mydisruptor.waitstrategy.MyWaitStrategy;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -24,9 +25,9 @@ public class MyDisruptor<T> {
             final int ringBufferSize,
             final Executor executor,
             final ProducerType producerType,
-            final MyBlockingWaitStrategy blockingWaitStrategyV4) {
+            final MyWaitStrategy myWaitStrategy) {
 
-        this.ringBuffer = MyRingBuffer.create(producerType,eventProducer,ringBufferSize,blockingWaitStrategyV4);
+        this.ringBuffer = MyRingBuffer.create(producerType,eventProducer,ringBufferSize,myWaitStrategy);
         this.executor = executor;
     }
 
