@@ -28,7 +28,89 @@ MyDisruptor类的构造函数有五个参数，分别是:
 3. 消费者执行器（juc.Executor实现类）
 4. 生产者类型枚举（指定单线程生产者 or 多线程生产者）
 5. 消费者阻塞策略实现（WaitStrategy）
-以上都是需要用户自定义或者指定的核心参数，构建好的disruptor的同时，也创建好了RingBuffer和指定类型的生产者序列器。
+以上都是需要用户自定义或者指定的核心参数，构建好的disruptor的同时，也构建好了RingBuffer和指定类型的生产者序列器。
+```java
+/**
+ * disruptor dsl(仿Disruptor.Disruptor)
+ * */
+public class MyDisruptor<T> {
+
+    private final MyRingBuffer<T> ringBuffer;
+    private final Executor executor;
+    private final MyConsumerRepository<T> consumerRepository = new MyConsumerRepository<>();
+    private final AtomicBoolean started = new AtomicBoolean(false);
+
+    public MyDisruptor(
+            final MyEventFactory<T> eventProducer,
+            final int ringBufferSize,
+            final Executor executor,
+            final ProducerType producerType,
+            final MyWaitStrategy myWaitStrategy) {
+
+        this.ringBuffer = MyRingBuffer.create(producerType,eventProducer,ringBufferSize,myWaitStrategy);
+        this.executor = executor;
+    }
+
+    /**
+     * 获得当亲Disruptor的ringBuffer
+     * */
+    public MyRingBuffer<T> getRingBuffer() {
+        return ringBuffer;
+    }
+    
+    // 注意：省略了大量代码
+}
+```
+##### EventHandlerGroup
+创建好Disruptor后，便可以按照需求编排各种消费者的依赖逻辑了。创建消费者时除了用户自定义的消费量逻辑接口（EventHandler/WorkHandler），还有两个关键要素需要指定，一是指定是单线程生产者还是多线程，二是指定当前消费者的上游消费者序列集合（或者没有）。  
+两两组合四种情况，为此Disruptor类一共提供了四个方法用于创建消费者：
+1. handleEventsWith(创建无上游消费者依赖的单线程消费者)
+2. createEventProcessors(创建有上游消费者依赖的单线程消费者)
+3. handleEventsWithWorkerPool(创建无上游消费者依赖的多线程消费者)
+4. createWorkerPool(创建有上游消费者依赖的多线程消费者)
+#####
+这四个方法的返回值都是EventHandlerGroup对象，其中提供了关键的then/thenHandleEventsWithWorkerPool方法用来链式的编排多个消费者组。  
+实际上disruptor中的EventHandlerGroup还提供了等更多的dsl风格的方法（如and），限于篇幅MyDisruptor中只实现了最关键的几个方法。
+```java
+/**
+ * DSL事件处理器组（仿Disruptor.EventHandlerGroup）
+ * */
+public class MyEventHandlerGroup<T> {
+
+    private final MyDisruptor<T> disruptor;
+    private final MyConsumerRepository<T> myConsumerRepository;
+    private final MySequence[] sequences;
+
+    public MyEventHandlerGroup(MyDisruptor<T> disruptor,
+                               MyConsumerRepository<T> myConsumerRepository,
+                               MySequence[] sequences) {
+        this.disruptor = disruptor;
+        this.myConsumerRepository = myConsumerRepository;
+        this.sequences = sequences;
+    }
+
+    @SafeVarargs
+    public final MyEventHandlerGroup<T> then(final MyEventHandler<T>... myEventHandlers) {
+        return handleEventsWith(myEventHandlers);
+    }
+
+    @SafeVarargs
+    public final MyEventHandlerGroup<T> handleEventsWith(final MyEventHandler<T>... handlers) {
+        return disruptor.createEventProcessors(sequences, handlers);
+    }
+
+    @SafeVarargs
+    public final MyEventHandlerGroup<T> thenHandleEventsWithWorkerPool(final MyWorkHandler<T>... handlers) {
+        return handleEventsWithWorkerPool(handlers);
+    }
+
+    @SafeVarargs
+    public final MyEventHandlerGroup<T> handleEventsWithWorkerPool(final MyWorkHandler<T>... handlers) {
+        return disruptor.createWorkerPool(sequences, handlers);
+    }
+}
+```
+##### MyDisruptor完整代码
 ```java
 /**
  * disruptor dsl(仿Disruptor.Disruptor)
@@ -156,7 +238,19 @@ public class MyDisruptor<T> {
     }
 }
 ```
-##### EventHandlerGroup
-创建好Disruptor后，便可以按照需求编排各种消费者的依赖逻辑了。Disruptor提供了
+##### Disruptor内部消费者依赖编排的性能小优化
+* 在上面完整的MyDisruptor实现中可以看到，在每次构建消费者后都执行了updateGatingSequencesForNextInChain这个方法。方法中将当前消费者序列号注册进RingBuffer的同时，还将传入的上游barrierSequence集合从当前RingBuffer中移除。
+这样做主要是为了提高生产者在获取当前最慢消费者时的性能。  
+* 在没有这个优化之前，所有的消费者的序列号都会被注册到RingBuffer中，生产者通过getMinimumSequence方法遍历注册的消费者序列集合获得其中最小的序列值（最慢的消费者）。  
+* 通过Disruptor的DSL接口创建的消费者，消费者之间是存在依赖关系的，每个消费者的实现内部保证了其自身的序列号不会超过上游的消费者序列。那么在存在上下游依赖关系的、所有消费者序列的集合中，最慢的消费者必然是处于下游的消费者序列号。  
+  所以在RingBuffer中就可以不用注册上游的那些序列号，加快遍历集合的速度。
+#MyDisruptorV5版本demo示例
+### 不使用DSL风格API的示例
+### 使用DSL风格APi的示例
+
+#总结
+
+
+
 
 

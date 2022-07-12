@@ -5,7 +5,7 @@ import mydisruptor.api.MyEventHandler;
 import mydisruptor.api.MyWorkHandler;
 
 /**
- * 事件处理器组（仿Disruptor.EventHandlerGroup）
+ * DSL事件处理器组（仿Disruptor.EventHandlerGroup）
  * */
 public class MyEventHandlerGroup<T> {
 

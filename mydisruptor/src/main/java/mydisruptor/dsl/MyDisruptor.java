@@ -4,7 +4,6 @@ import mydisruptor.*;
 import mydisruptor.api.MyEventFactory;
 import mydisruptor.api.MyEventHandler;
 import mydisruptor.api.MyWorkHandler;
-import mydisruptor.waitstrategy.MyBlockingWaitStrategy;
 import mydisruptor.waitstrategy.MyWaitStrategy;
 
 import java.util.concurrent.Executor;
