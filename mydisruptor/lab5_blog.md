@@ -7,15 +7,15 @@
 * v3版本博客：[从零开始实现lmax-Disruptor队列（三）多线程消费者WorkerPool原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16386982.html)
 * v4版本博客：[从零开始实现lmax-Disruptor队列（四）多线程生产者MultiProducerSequencer原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16448674.html)
 # 为什么Disruptor需要DSL风格的API
-通过前面4个版本的迭代，MyDisruptor已经实现了disruptor的大多数功能。但对程序可读性有要求的读者可能会注意到，demo示例代码中对于构建多个消费者之间的依赖关系时细节有点多。
+通过前面4个版本的迭代，MyDisruptor已经实现了disruptor的大多数功能。但对程序可读性有要求的读者可能会注意到，之前给出的demo示例代码中对于构建多个消费者之间的依赖关系时细节有点多。  
 构建一个有上游消费者依赖的EventProcessor消费者来说需要以下几步完成：
 1. 获得所要依赖的上游消费者序列集合，并在创建EventProcessor时通过参数传入
 2. 获得所创建的EventProcessor对应的消费者序列对象
 3. 将获得的消费者序列对象注册到RingBuffer中
-4. 通过线程池或者start等方式启动EventProcessor线程，监听并消费
+4. 通过线程池或者start等方式启动EventProcessor线程，开始监听消费
 #####
 **目前的版本中，每创建一个消费者都需要写一遍上述的模板代码。虽然对于理解Disruptor原理的人来说还能勉强接受，但还是很繁琐且容易在细节上犯错，更遑论对disruptor底层不大了解的普通用户了。**  
-基于上述原因，disruptor提供了更加简单易用的API，使得对disruptor底层各组件间依赖不甚了解的用户也能很方便的使用disruptor，并构建不同消费者组间的依赖。
+基于上述原因，disruptor提供了更加简单易用的API，使得对disruptor底层各组件间交互不甚了解的用户也能很方便的使用disruptor，去构建不同消费者组间的依赖关系。
 ### 什么是DSL风格的API?
 DSL即Domain Specific Language，领域特定语言。DSL是针对特定领域抽象出的一个特定语言，通过进一层的抽象来代替大量繁琐的通用代码段，如sql、shell等都是常见的dsl。  
 而DSL风格的API最大的特点就是接口的定义贴合业务场景，因此易于理解和使用。
@@ -28,7 +28,8 @@ MyDisruptor类的构造函数有五个参数，分别是:
 3. 消费者执行器（juc.Executor实现类）
 4. 生产者类型枚举（指定单线程生产者 or 多线程生产者）
 5. 消费者阻塞策略实现（WaitStrategy）
-以上都是需要用户自定义或者指定的核心参数，构建好的disruptor的同时，也构建好了RingBuffer和指定类型的生产者序列器。
+
+以上都是需要用户自定义或者指定的核心参数，构建好的disruptor的同时，也生成了RingBuffer和指定类型的生产者序列器。
 ```java
 /**
  * disruptor dsl(仿Disruptor.Disruptor)
@@ -241,14 +242,163 @@ public class MyDisruptor<T> {
 ##### Disruptor内部消费者依赖编排的性能小优化
 * 在上面完整的MyDisruptor实现中可以看到，在每次构建消费者后都执行了updateGatingSequencesForNextInChain这个方法。方法中将当前消费者序列号注册进RingBuffer的同时，还将传入的上游barrierSequence集合从当前RingBuffer中移除。
 这样做主要是为了提高生产者在获取当前最慢消费者时的性能。  
-* 在没有这个优化之前，所有的消费者的序列号都会被注册到RingBuffer中，生产者通过getMinimumSequence方法遍历注册的消费者序列集合获得其中最小的序列值（最慢的消费者）。  
-* 通过Disruptor的DSL接口创建的消费者，消费者之间是存在依赖关系的，每个消费者的实现内部保证了其自身的序列号不会超过上游的消费者序列。那么在存在上下游依赖关系的、所有消费者序列的集合中，最慢的消费者必然是处于下游的消费者序列号。  
-  所以在RingBuffer中就可以不用注册上游的那些序列号，加快遍历集合的速度。
+* 在没有这个优化之前，所有的消费者的序列号都会被注册到RingBuffer中，而生产者通过getMinimumSequence方法遍历**所有注册的消费者序列集合**获得其中最小的序列值（最慢的消费者）。  
+* 我们知道，通过Disruptor的DSL接口创建的消费者之间是存在依赖关系的，每个消费者的实现内部保证了其自身的序列号不会超过上游的消费者序列。所以在存在上下游依赖关系的、所有消费者序列的集合中，最慢的消费者必然是处于下游的消费者序列号。  
+  所以在RingBuffer中就可以不用再维护更上游的那些序列号，从而加快遍历集合的速度。
 #MyDisruptorV5版本demo示例
+下面通过一个简单但不失一般性的示例，来展示一下DSL风格API到底简化了多少复杂度。
 ### 不使用DSL风格API的示例
-### 使用DSL风格APi的示例
+```java
+public class MyRingBufferV5DemoOrginal {
+    /**
+     * 消费者依赖关系图（简单起见都是单线程消费者）：
+     * A -> BC -> D
+     *   -> E -> F
+     * */
+    public static void main(String[] args) {
+        // 环形队列容量为16（2的4次方）
+        int ringBufferSize = 16;
 
+        // 创建环形队列
+        MyRingBuffer<OrderEventModel> myRingBuffer = MyRingBuffer.createSingleProducer(
+                new OrderEventProducer(), ringBufferSize, new MyBlockingWaitStrategy());
+
+        // 获得ringBuffer的序列屏障（最上游的序列屏障内只维护生产者的序列）
+        MySequenceBarrier mySequenceBarrier = myRingBuffer.newBarrier();
+
+        // ================================== 基于生产者序列屏障，创建消费者A
+        MyBatchEventProcessor<OrderEventModel> eventProcessorA =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerA"), mySequenceBarrier);
+        MySequence consumeSequenceA = eventProcessorA.getCurrentConsumeSequence();
+        // RingBuffer监听消费者A的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceA);
+
+        // ================================== 通过消费者A的序列号创建序列屏障（构成消费的顺序依赖），创建消费者B
+        MySequenceBarrier mySequenceBarrierB = myRingBuffer.newBarrier(consumeSequenceA);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorB =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerB"), mySequenceBarrierB);
+        MySequence consumeSequenceB = eventProcessorB.getCurrentConsumeSequence();
+        // RingBuffer监听消费者B的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceB);
+
+        // ================================== 通过消费者A的序列号创建序列屏障（构成消费的顺序依赖），创建消费者C
+        MySequenceBarrier mySequenceBarrierC = myRingBuffer.newBarrier(consumeSequenceA);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorC =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerC"), mySequenceBarrierC);
+        MySequence consumeSequenceC = eventProcessorC.getCurrentConsumeSequence();
+        // RingBuffer监听消费者C的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceC);
+
+        // ================================== 消费者D依赖上游的消费者B，C，通过消费者B、C的序列号创建序列屏障（构成消费的顺序依赖）
+        MySequenceBarrier mySequenceBarrierD = myRingBuffer.newBarrier(consumeSequenceB,consumeSequenceC);
+        // 基于序列屏障，创建消费者D
+        MyBatchEventProcessor<OrderEventModel> eventProcessorD =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerD"), mySequenceBarrierD);
+        MySequence consumeSequenceD = eventProcessorD.getCurrentConsumeSequence();
+        // RingBuffer监听消费者D的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceD);
+
+        // ================================== 通过消费者A的序列号创建序列屏障（构成消费的顺序依赖），创建消费者E
+        MySequenceBarrier mySequenceBarrierE = myRingBuffer.newBarrier(consumeSequenceA);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorE =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerE"), mySequenceBarrierE);
+        MySequence consumeSequenceE = eventProcessorE.getCurrentConsumeSequence();
+        // RingBuffer监听消费者E的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceE);
+
+        // ================================== 通过消费者E的序列号创建序列屏障（构成消费的顺序依赖），创建消费者F
+        MySequenceBarrier mySequenceBarrierF = myRingBuffer.newBarrier(consumeSequenceE);
+
+        MyBatchEventProcessor<OrderEventModel> eventProcessorF =
+                new MyBatchEventProcessor<>(myRingBuffer, new OrderEventHandlerDemo("consumerF"), mySequenceBarrierF);
+        MySequence consumeSequenceF = eventProcessorF.getCurrentConsumeSequence();
+        // RingBuffer监听消费者F的序列
+        myRingBuffer.addGatingConsumerSequenceList(consumeSequenceF);
+
+        Executor executor = new ThreadPoolExecutor(10, 10, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
+        // 启动消费者线程A
+        executor.execute(eventProcessorA);
+        // 启动消费者线程B
+        executor.execute(eventProcessorB);
+        // 启动消费者线程C
+        executor.execute(eventProcessorC);
+        // 启动消费者线程D
+        executor.execute(eventProcessorD);
+        // 启动消费者线程E
+        executor.execute(eventProcessorE);
+        // 启动消费者线程F
+        executor.execute(eventProcessorF);
+
+        // 生产者发布100个事件
+        for(int i=0; i<100; i++) {
+            long nextIndex = myRingBuffer.next();
+            OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
+            orderEvent.setMessage("message-"+i);
+            orderEvent.setPrice(i * 10);
+            System.out.println("生产者发布事件：" + orderEvent);
+            myRingBuffer.publish(nextIndex);
+        }
+    }
+}
+```
+### 使用DSL风格APi的示例
+```java
+public class MyRingBufferV5DemoUseDSL {
+
+    /**
+     * 消费者依赖关系图（简单起见都是单线程消费者）：
+     * A -> BC -> D
+     *   -> E -> F
+     * */
+    public static void main(String[] args) {
+        // 环形队列容量为16（2的4次方）
+        int ringBufferSize = 16;
+
+        MyDisruptor<OrderEventModel> myDisruptor = new MyDisruptor<>(
+                new OrderEventProducer(), ringBufferSize,
+                new ThreadPoolExecutor(10, 10, 60L, TimeUnit.SECONDS, new SynchronousQueue<>()),
+                ProducerType.SINGLE,
+                new MyBlockingWaitStrategy()
+        );
+
+        MyEventHandlerGroup<OrderEventModel> hasAHandlerGroup = myDisruptor.handleEventsWith(new OrderEventHandlerDemo("consumerA"));
+
+        hasAHandlerGroup.then(new OrderEventHandlerDemo("consumerB"),new OrderEventHandlerDemo("consumerC"))
+                .then(new OrderEventHandlerDemo("consumerD"));
+
+        hasAHandlerGroup.then(new OrderEventHandlerDemo("consumerE"))
+                .then(new OrderEventHandlerDemo("consumerF"));
+        // 启动disruptor中注册的所有消费者
+        myDisruptor.start();
+
+        MyRingBuffer<OrderEventModel> myRingBuffer = myDisruptor.getRingBuffer();
+        // 生产者发布100个事件
+        for(int i=0; i<100; i++) {
+            long nextIndex = myRingBuffer.next();
+            OrderEventModel orderEvent = myRingBuffer.get(nextIndex);
+            orderEvent.setMessage("message-"+i);
+            orderEvent.setPrice(i * 10);
+            System.out.println("生产者发布事件：" + orderEvent);
+            myRingBuffer.publish(nextIndex);
+        }
+    }
+}
+```
+* 可以看到实现同样的业务逻辑时，使用DSL风格的API由于减少了大量的模板代码，代码量大幅减少的同时还增强了程序的可读性。这也证明了disruptor的DSL风格API设计是很成功的。
 #总结
+* 本篇博客介绍了Disruptor的DSL风格的API最核心的实现逻辑，并且通过对比展示了相同业务下DSL风格的API简单易理解的特点。
+* 限于篇幅，自己实现的MyDisruptor中并没有将disruptor中DSL风格的API功能全部实现，而仅仅实现了最常用、最核心的一部分。  
+  感兴趣的读者可以在理解当前v5版本MyDisruptor的基础之上，通过阅读disruptor的源码去进一步了解。
+* 目前v5版本的MyDisruptor已经实现了disruptor的绝大多数功能，最后的v6版本中将会对MyDisruptor中已有的缺陷进行进一步的优化。  
+  接下来v6版本的MyDisruptor中将会解决伪共享、优雅终止等关键问题并进行原理的解析，敬请期待。
+#####
+disruptor无论在整体设计还是最终代码实现上都有很多值得反复琢磨和学习的细节，希望能帮助到对disruptor感兴趣的小伙伴。
+#####
+本篇博客的完整代码在我的github上：https://github.com/1399852153/MyDisruptor 分支：feature/lab5
+   
 
 
 
