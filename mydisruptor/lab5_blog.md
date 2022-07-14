@@ -8,14 +8,14 @@
 * v4版本博客：[从零开始实现lmax-Disruptor队列（四）多线程生产者MultiProducerSequencer原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16448674.html)
 # 为什么Disruptor需要DSL风格的API
 通过前面4个版本的迭代，MyDisruptor已经实现了disruptor的大多数功能。但对程序可读性有要求的读者可能会注意到，之前给出的demo示例代码中对于构建多个消费者之间的依赖关系时细节有点多。  
-构建一个有上游消费者依赖的EventProcessor消费者来说需要以下几步完成：
+构建一个有上游消费者依赖的EventProcessor消费者一般来说需要通过以下几步完成：
 1. 获得所要依赖的上游消费者序列集合，并在创建EventProcessor时通过参数传入
 2. 获得所创建的EventProcessor对应的消费者序列对象
 3. 将获得的消费者序列对象注册到RingBuffer中
 4. 通过线程池或者start等方式启动EventProcessor线程，开始监听消费
 #####
-**目前的版本中，每创建一个消费者都需要写一遍上述的模板代码。虽然对于理解Disruptor原理的人来说还能勉强接受，但还是很繁琐且容易在细节上犯错，更遑论对disruptor底层不大了解的普通用户了。**  
-基于上述原因，disruptor提供了更加简单易用的API，使得对disruptor底层各组件间交互不甚了解的用户也能很方便的使用disruptor，去构建不同消费者组间的依赖关系。
+**目前的版本中，每创建一个消费者都需要写一遍上述的模板代码。对于理解Disruptor原理的人来说还勉强能接受，但还是很繁琐且容易在细节上犯错，更遑论对disruptor底层不大了解的普通用户。**  
+基于上述原因，disruptor提供了更加简单易用的DSL风格API，使得对disruptor底层各组件间交互不甚了解的用户也能很方便的使用disruptor，去构建不同消费者组间的依赖关系。
 ### 什么是DSL风格的API?
 DSL即Domain Specific Language，领域特定语言。DSL是针对特定领域抽象出的一个特定语言，通过进一层的抽象来代替大量繁琐的通用代码段，如sql、shell等都是常见的dsl。  
 而DSL风格的API最大的特点就是接口的定义贴合业务场景，因此易于理解和使用。
@@ -25,7 +25,7 @@ DSL即Domain Specific Language，领域特定语言。DSL是针对特定领域�
 MyDisruptor类的构造函数有五个参数，分别是:
 1. 用户自定义的事件生产器（EventFactory）
 2. RingBuffer的容量大小
-3. 消费者执行器（juc.Executor实现类）
+3. 消费者执行器（juc的Executor实现类）
 4. 生产者类型枚举（指定单线程生产者 or 多线程生产者）
 5. 消费者阻塞策略实现（WaitStrategy）
 
@@ -59,7 +59,7 @@ public class MyDisruptor<T> {
         return ringBuffer;
     }
     
-    // 注意：省略了大量代码
+    // 注意：省略了大量无关代码
 }
 ```
 ##### EventHandlerGroup
@@ -244,7 +244,7 @@ public class MyDisruptor<T> {
 这样做主要是为了提高生产者在获取当前最慢消费者时的性能。  
 * 在没有这个优化之前，所有的消费者的序列号都会被注册到RingBuffer中，而生产者通过getMinimumSequence方法遍历**所有注册的消费者序列集合**获得其中最小的序列值（最慢的消费者）。  
 * 我们知道，通过Disruptor的DSL接口创建的消费者之间是存在依赖关系的，每个消费者的实现内部保证了其自身的序列号不会超过上游的消费者序列。所以在存在上下游依赖关系的、所有消费者序列的集合中，最慢的消费者必然是处于下游的消费者序列号。  
-  所以在RingBuffer中就可以不用再维护更上游的那些序列号，从而加快遍历集合的速度。
+  所以在RingBuffer中就可以不再维护更上游的消费者序列号，从而加快getMinimumSequence方法中遍历数组的速度。
 #MyDisruptorV5版本demo示例
 下面通过一个简单但不失一般性的示例，来展示一下DSL风格API到底简化了多少复杂度。
 ### 不使用DSL风格API的示例
@@ -387,20 +387,14 @@ public class MyRingBufferV5DemoUseDSL {
     }
 }
 ```
-* 可以看到实现同样的业务逻辑时，使用DSL风格的API由于减少了大量的模板代码，代码量大幅减少的同时还增强了程序的可读性。这也证明了disruptor的DSL风格API设计是很成功的。
+* 可以看到实现同样的业务逻辑时，使用DSL风格的API由于减少了大量的模板代码，代码量大幅减少的同时还增强了程序的可读性。这证明了disruptor的DSL风格API设计是很成功的。
 #总结
 * 本篇博客介绍了Disruptor的DSL风格的API最核心的实现逻辑，并且通过对比展示了相同业务下DSL风格的API简单易理解的特点。
 * 限于篇幅，自己实现的MyDisruptor中并没有将disruptor中DSL风格的API功能全部实现，而仅仅实现了最常用、最核心的一部分。  
-  感兴趣的读者可以在理解当前v5版本MyDisruptor的基础之上，通过阅读disruptor的源码去进一步了解。
+  感兴趣的读者可以在理解当前v5版本MyDisruptor的基础之上，通过阅读disruptor的源码做进一步了解。
 * 目前v5版本的MyDisruptor已经实现了disruptor的绝大多数功能，最后的v6版本中将会对MyDisruptor中已有的缺陷进行进一步的优化。  
-  接下来v6版本的MyDisruptor中将会解决伪共享、优雅终止等关键问题并进行原理的解析，敬请期待。
+  v6版本的MyDisruptor将会解决伪共享、优雅终止等关键问题并进行对应原理的解析，敬请期待。
 #####
 disruptor无论在整体设计还是最终代码实现上都有很多值得反复琢磨和学习的细节，希望能帮助到对disruptor感兴趣的小伙伴。
 #####
 本篇博客的完整代码在我的github上：https://github.com/1399852153/MyDisruptor 分支：feature/lab5
-   
-
-
-
-
-
