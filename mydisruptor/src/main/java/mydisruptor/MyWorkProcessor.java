@@ -3,6 +3,8 @@ package mydisruptor;
 
 import mydisruptor.api.MyWorkHandler;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
  * 多线程消费者工作线程 （仿Disruptor.WorkProcessor）
  * */
@@ -13,6 +15,8 @@ public class MyWorkProcessor<T> implements MyEventProcessor{
     private final MyWorkHandler<T> myWorkHandler;
     private final MySequenceBarrier sequenceBarrier;
     private final MySequence workGroupSequence;
+
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
 
     public MyWorkProcessor(MyRingBuffer<T> myRingBuffer,
@@ -31,7 +35,21 @@ public class MyWorkProcessor<T> implements MyEventProcessor{
     }
 
     @Override
+    public void halt() {
+        // 当前消费者状态设置为停止
+        running.set(false);
+
+        // 唤醒消费者线程（令其能立即检查到状态为停止）
+        this.sequenceBarrier.alert();
+    }
+
+    @Override
     public void run() {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("Thread is already running");
+        }
+        this.sequenceBarrier.clearAlert();
+
         long nextConsumerIndex = this.currentConsumeSequence.get();
         // 设置哨兵值，保证第一次循环时nextConsumerIndex <= cachedAvailableSequence一定为false，走else分支通过序列屏障获得最大的可用序列号
         long cachedAvailableSequence = Long.MIN_VALUE;
@@ -82,6 +100,12 @@ public class MyWorkProcessor<T> implements MyEventProcessor{
                     // 1 第一次循环会获取当前序列屏障的最大可消费序列
                     // 2 非第一次循环，说明争抢到的序列超过了屏障序列的最大值，等待生产者推进到争抢到的sequence
                     cachedAvailableSequence = sequenceBarrier.getAvailableConsumeSequence(nextConsumerIndex);
+                }
+            } catch (final MyAlertException ex) {
+                // 被外部alert打断，检查running标记
+                if (!running.get()) {
+                    // running == false, break跳出主循环，运行结束
+                    break;
                 }
             } catch (final Throwable ex) {
                 // 消费者消费时发生了异常，也认为是成功消费了，避免阻塞消费序列

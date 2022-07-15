@@ -3,6 +3,9 @@ package mydisruptor;
 import mydisruptor.api.MyEventHandler;
 import mydisruptor.util.LogUtil;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
 /**
  * 单线程消费者（仿Disruptor.BatchEventProcessor）
  * */
@@ -12,6 +15,7 @@ public class MyBatchEventProcessor<T> implements MyEventProcessor{
     private final MyRingBuffer<T> myRingBuffer;
     private final MyEventHandler<T> myEventConsumer;
     private final MySequenceBarrier mySequenceBarrier;
+    private final AtomicBoolean running = new AtomicBoolean();
 
     public MyBatchEventProcessor(MyRingBuffer<T> myRingBuffer,
                                  MyEventHandler<T> myEventConsumer,
@@ -23,6 +27,11 @@ public class MyBatchEventProcessor<T> implements MyEventProcessor{
 
     @Override
     public void run() {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("Thread is already running");
+        }
+        this.mySequenceBarrier.clearAlert();
+
         // 下一个需要消费的下标
         long nextConsumerIndex = currentConsumeSequence.get() + 1;
 
@@ -42,6 +51,12 @@ public class MyBatchEventProcessor<T> implements MyEventProcessor{
                 // 更新当前消费者的消费的序列（lazySet，不需要生产者实时的强感知刷缓存性能更好，因为生产者自己也不是实时的读消费者序列的）
                 this.currentConsumeSequence.lazySet(availableConsumeIndex);
                 LogUtil.logWithThreadName("更新当前消费者的消费的序列:" + availableConsumeIndex);
+            } catch (final MyAlertException ex) {
+                // 被外部alert打断，检查running标记
+                if (!running.get()) {
+                    // running == false, break跳出主循环，运行结束
+                    break;
+                }
             } catch (final Throwable ex) {
                 // 发生异常，消费进度依然推进（跳过这一批拉取的数据）（lazySet 原理同上）
                 this.currentConsumeSequence.lazySet(nextConsumerIndex);
@@ -53,5 +68,14 @@ public class MyBatchEventProcessor<T> implements MyEventProcessor{
     @Override
     public MySequence getCurrentConsumeSequence() {
         return this.currentConsumeSequence;
+    }
+
+    @Override
+    public void halt() {
+        // 当前消费者状态设置为停止
+        running.set(false);
+
+        // 唤醒消费者线程（令其能立即检查到状态为停止）
+        this.mySequenceBarrier.alert();
     }
 }

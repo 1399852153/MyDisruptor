@@ -19,4 +19,9 @@ public class MyWorkerPoolInfo<T> implements MyConsumerInfo {
     public void start(Executor executor) {
         workerPool.start(executor);
     }
+
+    @Override
+    public void halt() {
+        this.workerPool.halt();
+    }
 }

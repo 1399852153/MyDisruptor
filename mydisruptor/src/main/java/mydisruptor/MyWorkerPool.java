@@ -5,12 +5,14 @@ import mydisruptor.api.MyWorkHandler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 多线程消费者（仿Disruptor.WorkerPool）
  * */
 public class MyWorkerPool<T> {
 
+    private final AtomicBoolean started = new AtomicBoolean(false);
     private final MySequence workSequence = new MySequence(-1);
     private final MyRingBuffer<T> myRingBuffer;
     private final List<MyWorkProcessor<T>> workEventProcessorList;
@@ -48,6 +50,10 @@ public class MyWorkerPool<T> {
     }
 
     public MyRingBuffer<T> start(final Executor executor) {
+        if (!started.compareAndSet(false, true)) {
+            throw new IllegalStateException("WorkerPool已经被启动，并且在被停止前无法被再次启动");
+        }
+
         final long cursor = myRingBuffer.getCurrentProducerSequence().get();
         workSequence.set(cursor);
 
@@ -57,5 +63,13 @@ public class MyWorkerPool<T> {
         }
 
         return this.myRingBuffer;
+    }
+
+    public void halt() {
+        for (MyWorkProcessor<?> processor : this.workEventProcessorList) {
+            processor.halt();
+        }
+
+        started.set(false);
     }
 }

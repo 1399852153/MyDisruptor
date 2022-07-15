@@ -19,4 +19,9 @@ public class MyEventProcessorInfo<T> implements MyConsumerInfo {
     public void start(Executor executor) {
         executor.execute(myEventProcessor);
     }
+
+    @Override
+    public void halt() {
+        this.myEventProcessor.halt();
+    }
 }

@@ -12,4 +12,9 @@ public interface MyConsumerInfo {
      * @param executor 启动器
      * */
     void start(Executor executor);
+
+    /**
+     * 停止当前消费者
+     * */
+    void halt();
 }

@@ -10,4 +10,9 @@ public interface MyEventProcessor extends Runnable{
      * @return 当前消费者序列对象
      * */
     MySequence getCurrentConsumeSequence();
+
+    /**
+     * 停止当前消费者
+     * */
+    void halt();
 }

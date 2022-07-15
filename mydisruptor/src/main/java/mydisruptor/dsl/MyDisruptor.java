@@ -128,6 +128,17 @@ public class MyDisruptor<T> {
     }
 
     /**
+     * 停止注册的所有消费者
+     * */
+    public void halt() {
+        // 遍历消费者信息列表，挨个调用halt方法终止
+        for (final MyConsumerInfo consumerInfo : this.consumerRepository.getConsumerInfos()) {
+            consumerInfo.halt();
+        }
+    }
+
+
+    /**
      * 获得当亲Disruptor的ringBuffer
      * */
     public MyRingBuffer<T> getRingBuffer() {
