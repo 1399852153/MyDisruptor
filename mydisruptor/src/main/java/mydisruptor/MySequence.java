@@ -13,9 +13,19 @@ import java.lang.reflect.Field;
 public class MySequence {
 
     /**
+     * 解决伪共享 左半部分填充
+     * */
+    private long lp1, lp2, lp3, lp4, lp5, lp6, lp7;
+
+    /**
      * 序列起始值默认为-1，保证下一个序列恰好是0（即第一个合法的序列号）
      * */
     private volatile long value = -1;
+
+    /**
+     * 解决伪共享 右半部分填充
+     * */
+    private long rp1, rp2, rp3, rp4, rp5, rp6, rp7;
 
     private static final Unsafe UNSAFE;
     private static final long VALUE_OFFSET;

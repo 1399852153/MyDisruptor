@@ -36,6 +36,11 @@ public class MySingleProducerSequencer implements MyProducerSequencer{
     private final MyWaitStrategy myWaitStrategy;
 
     /**
+     * 解决伪共享 左半部分填充
+     * */
+    private long lp1, lp2, lp3, lp4, lp5, lp6, lp7;
+
+    /**
      * 当前已申请的序列(但是是否发布了，要看currentProducerSequence)
      *
      * 单线程生产者内部使用，所以就是普通的long，不考虑并发
@@ -48,6 +53,11 @@ public class MySingleProducerSequencer implements MyProducerSequencer{
      * 单线程生产者内部使用，所以就是普通的long，不考虑并发
      * */
     private long cachedConsumerSequenceValue = -1;
+
+    /**
+     * 解决伪共享 右半部分填充
+     * */
+    private long rp1, rp2, rp3, rp4, rp5, rp6, rp7;
 
     public MySingleProducerSequencer(int ringBufferSize, MyWaitStrategy myWaitStrategy) {
         this.ringBufferSize = ringBufferSize;

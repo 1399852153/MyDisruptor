@@ -11,10 +11,20 @@ import java.util.Arrays;
  * */
 public class MyRingBuffer<T> {
 
+    /**
+     * 解决伪共享 左半部分填充
+     * */
+    protected long lp1, lp2, lp3, lp4, lp5, lp6, lp7;
+
     private final T[] elementList;
     private final MyProducerSequencer myProducerSequencer;
     private final int ringBufferSize;
     private final int mask;
+
+    /**
+     * 解决伪共享 右半部分填充
+     * */
+    protected long rp1, rp2, rp3, rp4, rp5, rp6, rp7;
 
     public MyRingBuffer(MyProducerSequencer myProducerSequencer, MyEventFactory<T> myEventFactory) {
         int bufferSize = myProducerSequencer.getRingBufferSize();
