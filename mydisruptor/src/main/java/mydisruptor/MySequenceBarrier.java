@@ -37,7 +37,7 @@ public class MySequenceBarrier {
         // 每次都检查下是否有被唤醒，被唤醒则会抛出MyAlertException代表当前消费者要终止运行了
         checkAlert();
 
-        long availableSequence = this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList);
+        long availableSequence = this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList,this);
 
         if (availableSequence < currentConsumeSequence) {
             return availableSequence;

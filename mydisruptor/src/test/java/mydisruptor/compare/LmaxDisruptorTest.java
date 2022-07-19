@@ -5,19 +5,17 @@ import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public class LmaxDisruptorTest {
 
     public static void main(String[] args) throws InterruptedException {
         CountDownLatch countDownLatch = new CountDownLatch(1);
         int totalProductCount = 1000000;
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(10, 10, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
+
         Disruptor<String> disruptor = new Disruptor<>(
-                () -> "12345",128,
-                new ThreadPoolExecutor(10, 10, 60L, TimeUnit.SECONDS, new SynchronousQueue<>()),
+                () -> "12345",128,executor,
                 ProducerType.SINGLE,new BlockingWaitStrategy()
                 );
 
@@ -36,6 +34,7 @@ public class LmaxDisruptorTest {
 
         countDownLatch.await();
         disruptor.halt();
+        executor.shutdown();
         System.out.println("lmax-disruptor 执行完毕");
     }
 }

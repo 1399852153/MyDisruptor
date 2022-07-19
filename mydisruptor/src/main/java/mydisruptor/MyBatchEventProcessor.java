@@ -52,6 +52,8 @@ public class MyBatchEventProcessor<T> implements MyEventProcessor{
                 this.currentConsumeSequence.lazySet(availableConsumeIndex);
                 LogUtil.logWithThreadName("更新当前消费者的消费的序列:" + availableConsumeIndex);
             } catch (final MyAlertException ex) {
+                LogUtil.logWithThreadName("消费者MyAlertException" + ex);
+
                 // 被外部alert打断，检查running标记
                 if (!running.get()) {
                     // running == false, break跳出主循环，运行结束

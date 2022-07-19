@@ -14,11 +14,12 @@ public class MyDisruptorTest {
 
     public static void main(String[] args) throws InterruptedException {
         CountDownLatch countDownLatch = new CountDownLatch(1);
-        int totalProductCount = 1000000;
+        int totalProductCount = 10000;
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(10, 10, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
+
         MyDisruptor<String> myDisruptor = new MyDisruptor<>(
-                () -> "12345", 128,
-                new ThreadPoolExecutor(10, 10, 60L, TimeUnit.SECONDS, new SynchronousQueue<>()),
-                ProducerType.SINGLE,
+                () -> "12345", 16,
+                executor,ProducerType.SINGLE,
                 new MyBlockingWaitStrategy()
         );
 
@@ -37,6 +38,7 @@ public class MyDisruptorTest {
 
         countDownLatch.await();
         myDisruptor.halt();
+        executor.shutdown();
         System.out.println("myDisruptor 执行完毕");
     }
 }

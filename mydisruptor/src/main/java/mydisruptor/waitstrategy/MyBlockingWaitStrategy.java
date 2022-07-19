@@ -1,9 +1,10 @@
 package mydisruptor.waitstrategy;
 
+import mydisruptor.MyAlertException;
 import mydisruptor.MySequence;
-import mydisruptor.util.LogUtil;
-import mydisruptor.util.SequenceUtil;
+import mydisruptor.MySequenceBarrier;
 import mydisruptor.util.MyThreadHints;
+import mydisruptor.util.SequenceUtil;
 
 import java.util.List;
 import java.util.concurrent.locks.Condition;
@@ -19,8 +20,9 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
     private final Condition processorNotifyCondition = lock.newCondition();
 
     @Override
-    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, List<MySequence> dependentSequences)
-            throws InterruptedException {
+    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, List<MySequence> dependentSequences,
+                        MySequenceBarrier barrier)
+            throws InterruptedException, MyAlertException {
         // 强一致的读生产者序列号
         if (currentProducerSequence.get() < currentConsumeSequence) {
             // 如果ringBuffer的生产者下标小于当前消费者所需的下标，说明目前消费者消费速度大于生产者生产速度
@@ -30,6 +32,11 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
                 //
                 while (currentProducerSequence.get() < currentConsumeSequence) {
                     // 消费者的消费速度比生产者的生产速度快，阻塞等待
+                    System.out.println("消费者的消费速度比生产者的生产速度快，阻塞等待");
+
+                    // 每次循环都检查运行状态
+                    barrier.checkAlert();
+
                     processorNotifyCondition.await();
                 }
             }
@@ -43,6 +50,9 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
         if(!dependentSequences.isEmpty()){
             // 受制于屏障中的dependentSequences，用来控制当前消费者消费进度不得超过其所依赖的链路上游的消费者进度
             while ((availableSequence = SequenceUtil.getMinimumSequence(dependentSequences)) < currentConsumeSequence) {
+                // 每次循环都检查运行状态
+                barrier.checkAlert();
+
                 // 由于消费者消费速度一般会很快，所以这里使用自旋阻塞来等待上游消费者进度推进（响应及时，且实现简单）
 
                 // 在jdk9开始引入的Thread.onSpinWait方法，优化自旋性能
@@ -61,6 +71,8 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
         lock.lock();
         try {
             // signal唤醒所有阻塞在条件变量上的消费者线程（后续支持多消费者时，会改为signalAll）
+            System.out.println("signal唤醒所有阻塞在条件变量上的消费者线程");
+
             processorNotifyCondition.signalAll();
         }
         finally {
