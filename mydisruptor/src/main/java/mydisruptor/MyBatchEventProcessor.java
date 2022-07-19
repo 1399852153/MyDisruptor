@@ -4,7 +4,6 @@ import mydisruptor.api.MyEventHandler;
 import mydisruptor.util.LogUtil;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 单线程消费者（仿Disruptor.BatchEventProcessor）

@@ -29,12 +29,10 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
 
             lock.lock();
             try {
-                //
                 while (currentProducerSequence.get() < currentConsumeSequence) {
                     // 消费者的消费速度比生产者的生产速度快，阻塞等待
-                    System.out.println("消费者的消费速度比生产者的生产速度快，阻塞等待");
 
-                    // 每次循环都检查运行状态
+                    // 每次循环都检查运行状态（被锁保护，不会出现丢失signal信号的问题）
                     barrier.checkAlert();
 
                     processorNotifyCondition.await();
@@ -71,8 +69,6 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
         lock.lock();
         try {
             // signal唤醒所有阻塞在条件变量上的消费者线程（后续支持多消费者时，会改为signalAll）
-            System.out.println("signal唤醒所有阻塞在条件变量上的消费者线程");
-
             processorNotifyCondition.signalAll();
         }
         finally {
