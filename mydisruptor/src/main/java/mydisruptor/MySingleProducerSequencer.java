@@ -31,7 +31,7 @@ public class MySingleProducerSequencer implements MyProducerSequencer{
     /**
      * 生产者序列器所属ringBuffer的消费者序列集合
      * */
-    private final MySequence[] gatingConsumerSequences = new MySequence[0];
+    private volatile MySequence[] gatingConsumerSequences = new MySequence[0];
 
     private final MyWaitStrategy myWaitStrategy;
 

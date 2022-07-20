@@ -21,7 +21,7 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
 
     private final int ringBufferSize;
     private final MySequence currentProducerSequence = new MySequence();
-    private final MySequence[] gatingConsumerSequences = new MySequence[0];
+    private volatile MySequence[] gatingConsumerSequences = new MySequence[0];
     private final MyWaitStrategy myWaitStrategy;
 
     private final MySequence gatingSequenceCache = new MySequence();
