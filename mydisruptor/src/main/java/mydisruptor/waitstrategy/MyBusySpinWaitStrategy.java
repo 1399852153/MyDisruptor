@@ -10,7 +10,7 @@ import java.util.List;
 
 public class MyBusySpinWaitStrategy implements MyWaitStrategy{
     @Override
-    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, List<MySequence> dependentSequences,
+    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, MySequence[] dependentSequences,
                         MySequenceBarrier barrier) throws MyAlertException {
         long availableSequence;
 

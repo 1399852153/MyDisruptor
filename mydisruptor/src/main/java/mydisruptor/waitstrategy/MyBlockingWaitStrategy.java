@@ -20,7 +20,7 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
     private final Condition processorNotifyCondition = lock.newCondition();
 
     @Override
-    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, List<MySequence> dependentSequences,
+    public long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, MySequence[] dependentSequences,
                         MySequenceBarrier barrier)
             throws InterruptedException, MyAlertException {
         // 强一致的读生产者序列号
@@ -45,7 +45,7 @@ public class MyBlockingWaitStrategy implements MyWaitStrategy{
 
         // 跳出了上面的循环，说明生产者序列已经超过了当前所要消费的位点（currentProducerSequence > currentConsumeSequence）
         long availableSequence;
-        if(!dependentSequences.isEmpty()){
+        if(dependentSequences.length != 0){
             // 受制于屏障中的dependentSequences，用来控制当前消费者消费进度不得超过其所依赖的链路上游的消费者进度
             while ((availableSequence = SequenceUtil.getMinimumSequence(dependentSequences)) < currentConsumeSequence) {
                 // 每次循环都检查运行状态

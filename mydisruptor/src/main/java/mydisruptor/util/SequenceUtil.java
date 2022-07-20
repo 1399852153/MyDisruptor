@@ -14,7 +14,7 @@ public class SequenceUtil {
      * @param minimumSequence 申请的最小序列号
      * @param dependentSequenceList 依赖的序列集合
      * */
-    public static long getMinimumSequence(long minimumSequence, List<MySequence> dependentSequenceList){
+    public static long getMinimumSequence(long minimumSequence, MySequence[] dependentSequenceList){
         for (MySequence sequence : dependentSequenceList) {
             long value = sequence.get();
             minimumSequence = Math.min(minimumSequence, value);
@@ -27,7 +27,7 @@ public class SequenceUtil {
      * 获得传入的序列集合中最小的一个序列号
      * @param dependentSequenceList 依赖的序列集合
      * */
-    public static long getMinimumSequence(List<MySequence> dependentSequenceList){
+    public static long getMinimumSequence(MySequence[] dependentSequenceList){
         // Long.MAX_VALUE作为上界，即使dependentSequenceList为空，也会返回一个Long.MAX_VALUE作为最小序列号
         return getMinimumSequence(Long.MAX_VALUE, dependentSequenceList);
     }

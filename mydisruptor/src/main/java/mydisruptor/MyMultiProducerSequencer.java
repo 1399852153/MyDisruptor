@@ -8,6 +8,7 @@ import sun.misc.Unsafe;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -15,9 +16,12 @@ import java.util.concurrent.locks.LockSupport;
  */
 public class MyMultiProducerSequencer implements MyProducerSequencer{
 
+    private static final AtomicReferenceFieldUpdater<MyMultiProducerSequencer, MySequence[]> SEQUENCE_UPDATER =
+            AtomicReferenceFieldUpdater.newUpdater(MyMultiProducerSequencer.class, MySequence[].class, "gatingConsumerSequences");
+
     private final int ringBufferSize;
     private final MySequence currentProducerSequence = new MySequence();
-    private final List<MySequence> gatingConsumerSequenceList = new ArrayList<>();
+    private final MySequence[] gatingConsumerSequences = new MySequence[0];
     private final MyWaitStrategy myWaitStrategy;
 
     private final MySequence gatingSequenceCache = new MySequence();
@@ -76,7 +80,7 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
             // 消费者位点cachedValue并不是实时获取的（因为在没有超过环绕点一圈时，生产者是可以放心生产的）
             // 每次发布都实时获取反而会触发对消费者sequence强一致的读，迫使消费者线程所在的CPU刷新缓存（而这是不需要的）
             if(wrapPoint > cachedGatingSequence){
-                long gatingSequence = SequenceUtil.getMinimumSequence(currentMaxProducerSequenceNum, this.gatingConsumerSequenceList);
+                long gatingSequence = SequenceUtil.getMinimumSequence(currentMaxProducerSequenceNum, this.gatingConsumerSequences);
                 if(wrapPoint > gatingSequence){
                     // 如果确实超过了一圈，则生产者无法获取队列空间
                     LockSupport.parkNanos(1);
@@ -112,28 +116,28 @@ public class MyMultiProducerSequencer implements MyProducerSequencer{
 
     @Override
     public MySequenceBarrier newBarrier() {
-        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>());
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new MySequence[0]);
     }
 
     @Override
     public MySequenceBarrier newBarrier(MySequence... dependenceSequences) {
-        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,new ArrayList<>(Arrays.asList(dependenceSequences)));
+        return new MySequenceBarrier(this,this.currentProducerSequence,this.myWaitStrategy,dependenceSequences);
 
     }
 
     @Override
     public void addGatingConsumerSequence(MySequence newGatingConsumerSequence) {
-        this.gatingConsumerSequenceList.add(newGatingConsumerSequence);
+        MySequenceGroups.addSequences(this,SEQUENCE_UPDATER,this.currentProducerSequence,newGatingConsumerSequence);
     }
 
     @Override
     public void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences) {
-        this.gatingConsumerSequenceList.addAll(Arrays.asList(newGatingConsumerSequences));
+        MySequenceGroups.addSequences(this,SEQUENCE_UPDATER,this.currentProducerSequence,newGatingConsumerSequences);
     }
 
     @Override
     public void removeConsumerSequence(MySequence sequenceNeedRemove) {
-        this.gatingConsumerSequenceList.remove(sequenceNeedRemove);
+        MySequenceGroups.removeSequence(this,SEQUENCE_UPDATER,sequenceNeedRemove);
     }
 
     @Override

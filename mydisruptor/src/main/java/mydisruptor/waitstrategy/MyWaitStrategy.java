@@ -14,7 +14,7 @@ public interface MyWaitStrategy {
     /**
      * 类似jdk Condition的await，如果不满足条件就会阻塞在该方法内，不返回
      * */
-    long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, List<MySequence> dependentSequences,
+    long waitFor(long currentConsumeSequence, MySequence currentProducerSequence, MySequence[] dependentSequences,
                  MySequenceBarrier barrier) throws InterruptedException, MyAlertException;
 
     /**

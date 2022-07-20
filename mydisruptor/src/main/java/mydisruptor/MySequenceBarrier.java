@@ -14,19 +14,19 @@ public class MySequenceBarrier {
     private final MySequence currentProducerSequence;
     private volatile boolean alerted = false;
     private final MyWaitStrategy myWaitStrategy;
-    private final List<MySequence> dependentSequencesList;
+    private final MySequence[] dependentSequencesList;
 
     public MySequenceBarrier(MyProducerSequencer myProducerSequencer, MySequence currentProducerSequence,
-                             MyWaitStrategy myWaitStrategy, List<MySequence> dependentSequencesList) {
+                             MyWaitStrategy myWaitStrategy, MySequence[] dependentSequencesList) {
         this.myProducerSequencer = myProducerSequencer;
         this.currentProducerSequence = currentProducerSequence;
         this.myWaitStrategy = myWaitStrategy;
 
-        if(!dependentSequencesList.isEmpty()) {
+        if(dependentSequencesList.length != 0) {
             this.dependentSequencesList = dependentSequencesList;
         }else{
             // 如果传入的上游依赖序列为空，则生产者序列号作为兜底的依赖
-            this.dependentSequencesList = Collections.singletonList(currentProducerSequence);
+            this.dependentSequencesList = new MySequence[]{currentProducerSequence};
         }
     }
 

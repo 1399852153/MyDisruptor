@@ -102,12 +102,12 @@ public class MyDisruptor<T> {
             // 由于新的消费者通过ringBuffer.newBarrier(barrierSequences)，已经是依赖于之前ringBuffer中已有的消费者序列
             // 消费者即EventProcessor内部已经设置好了老的barrierSequences为依赖，因此可以将ringBuffer中已有的消费者序列去掉
             // 只需要保存，依赖当前消费者链条最末端的序列即可（也就是最慢的序列），这样生产者可以更快的遍历注册的消费者序列
-            for(MySequence sequenceV4 : barrierSequences){
-                ringBuffer.removeConsumerSequence(sequenceV4);
+            for(MySequence sequence : barrierSequences){
+                ringBuffer.removeConsumerSequence(sequence);
             }
-            for(MySequence sequenceV4 : processorSequences){
+            for(MySequence sequence : processorSequences){
                 // 新设置的就是当前消费者链条最末端的序列
-                ringBuffer.addConsumerSequence(sequenceV4);
+                ringBuffer.addConsumerSequence(sequence);
             }
         }
     }
