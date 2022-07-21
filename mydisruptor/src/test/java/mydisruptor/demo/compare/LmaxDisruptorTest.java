@@ -1,4 +1,4 @@
-package mydisruptor.compare;
+package mydisruptor.demo.compare;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.RingBuffer;

@@ -1,4 +1,4 @@
-package mydisruptor.compare;
+package mydisruptor.demo.compare;
 
 import com.lmax.disruptor.EventHandler;
 import mydisruptor.api.MyEventHandler;

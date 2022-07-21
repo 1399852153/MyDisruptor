@@ -1,4 +1,4 @@
-package mydisruptor.compare;
+package mydisruptor.demo.compare;
 
 import mydisruptor.MyRingBuffer;
 import mydisruptor.dsl.MyDisruptor;

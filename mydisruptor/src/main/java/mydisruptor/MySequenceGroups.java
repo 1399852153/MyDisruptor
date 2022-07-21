@@ -5,6 +5,8 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
  * 更改Sequence数组工具类（仿Disruptor.SequenceGroups）
+ * 注意：实现中cas的插入/删除机制在MyDisruptor中是不必要的，因为MyDisruptor不支持在运行时动态的注册新消费者
+ *     只是为了和Disruptor的实现保持一致，可以更好的说明实现原理才这样做的，本质上只需要支持sequence数组扩容/缩容即可
  * */
 public class MySequenceGroups {
 
