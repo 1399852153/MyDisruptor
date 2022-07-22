@@ -130,7 +130,7 @@ public class NoFalseSharingDemo {
   **在我的机器上，两个线程在对x、y分别自增1亿次的场景下，存在伪共享问题的示例代码FalseSharingDemo比解决了伪共享问题示例代码NoFalseSharingDemo要慢3到4倍。**
 # disruptor中伪共享问题的解决
 * disruptor中对三个关键组件的全部或部分属性进行了缓存行的填充，分别是Sequence、RingBuffer和SingleProducerSequencer。  
-  这三个组件有两大特征：只会被单个线程写、会被大量其它线程频繁的读，令它们避免被其它无关业务。
+  这三个组件有两大特征：只会被单个线程写、会被大量其它线程频繁的读，令它们避免出现伪共享问题在高并发场景下对性能有很大提升。
 * MySingleProducerSequencer中很多属性，但只有nextValue和cachedConsumerSequenceValue被填充字段包裹起来，其主要原因是只有这两个字段会被生产者频繁的更新。
 ##### MySequence解决伪共享实现 
 ```java
@@ -257,7 +257,9 @@ public class MySingleProducerSequencer implements MyProducerSequencer {
   在disruptor中因为Sequence,RingBuffer,SingleProducerSequencer这三个数据结构都是被线程频繁访问的，但实际的数量却十分有限(正比于生产者、消费者的总数)，所以这个问题并不严重。
 * 填充缓存行的方法既可以像disruptor一样，手动的设置填充字段，也可以使用jdk提供的Contended注解来告诉编译器进行缓冲行的填充，限于篇幅就不再继续展开了。
 ### 为什么和SingleProducerSequencer类似的MultiProducerSequencer不需要解决伪共享问题？
-* 因为多线程生产者序列器中和nextValue、cachedConsumerSequenceValue等价的属性就是需要在多个生产者线程间共享的，其确实需要频繁的在多个CPU核心的高速缓存行间进行同步。
-  这种场景是实实在在的共享场景，而不是伪共享场景，因此也就不要需要解决伪共享问题了。
+* 因为多线程生产者序列器中和nextValue、cachedConsumerSequenceValue等价的属性就是需要在多个生产者线程间共享的，因此确实需要频繁的在多个CPU核心的高速缓存行间进行同步。
+  这种场景是实实在在的共享场景，而不是伪共享场景，因此也就不存在伪共享问题了。
 # 支持消费者线程优雅停止详解
+  todo 待完善
 # 消费者序列集合的数据结构由ArrayList优化为数组详解
+  todo 待完善
