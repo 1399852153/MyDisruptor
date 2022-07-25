@@ -72,4 +72,8 @@ public class MyWorkerPool<T> {
 
         started.set(false);
     }
+
+    public boolean isRunning(){
+        return this.started.get();
+    }
 }

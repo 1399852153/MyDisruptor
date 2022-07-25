@@ -252,7 +252,6 @@ public class MySingleProducerSequencer implements MyProducerSequencer {
   // 注意：省略了方法代码
 }
 ```  
-* todo 为什么多线程生产者序列器不需要填充，解决伪共享问题？  
 * 对象填充多余字段避免伪共享问题，提高了性能的同时，也需要注意其可能大幅增加了对象所占用的内存空间。
   在disruptor中因为Sequence,RingBuffer,SingleProducerSequencer这三个数据结构都是被线程频繁访问的，但实际的数量却十分有限(正比于生产者、消费者的总数)，所以这个问题并不严重。
 * 填充缓存行的方法既可以像disruptor一样，手动的设置填充字段，也可以使用jdk提供的Contended注解来告诉编译器进行缓冲行的填充，限于篇幅就不再继续展开了。
@@ -260,6 +259,7 @@ public class MySingleProducerSequencer implements MyProducerSequencer {
 * 因为多线程生产者序列器中和nextValue、cachedConsumerSequenceValue等价的属性就是需要在多个生产者线程间共享的，因此确实需要频繁的在多个CPU核心的高速缓存行间进行同步。
   这种场景是实实在在的共享场景，而不是伪共享场景，因此也就不存在伪共享问题了。
 # 支持消费者线程优雅停止详解
+
   todo 待完善
 # 消费者序列集合的数据结构由ArrayList优化为数组详解
   todo 待完善

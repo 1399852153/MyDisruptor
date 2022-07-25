@@ -7,6 +7,8 @@ import mydisruptor.api.MyWorkHandler;
 import mydisruptor.waitstrategy.MyWaitStrategy;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -135,6 +137,41 @@ public class MyDisruptor<T> {
         for (final MyConsumerInfo consumerInfo : this.consumerRepository.getConsumerInfos()) {
             consumerInfo.halt();
         }
+    }
+
+    /**
+     * 等到所有的消费者把已生产的事件全部消费完成后，再halt停止所有消费者线程
+     * */
+    public void shutdown(long timeout, TimeUnit timeUnit){
+        final long timeOutAt = System.currentTimeMillis() + timeUnit.toMillis(timeout);
+        // 无限循环，直到所有已生产的事件全部消费完成
+        while (hasBacklog()) {
+            if (timeout >= 0 && System.currentTimeMillis() > timeOutAt) {
+                throw new RuntimeException("disruptor shutdown操作，等待超时");
+            }
+            // 忙等待
+        }
+
+        // hasBacklog为false，跳出了循环
+        // 说明已生产的事件全部消费完成了，此时可以安全的优雅停止所有消费者线程了，
+        halt();
+    }
+
+    /**
+     * 判断当前消费者是否还有未消费完的事件
+     */
+    private boolean hasBacklog() {
+        final long cursor = ringBuffer.getCurrentProducerSequence().get();
+        // 获得所有的处于最尾端的消费者序列（最尾端的是最慢的，所以是准确的）
+        for (final MySequence consumer : consumerRepository.getLastSequenceInChain()) {
+            if (cursor > consumer.get()) {
+                // 如果任意一个消费者序列号小于当前生产者序列，说明存在未消费完的事件，返回true
+                return true;
+            }
+        }
+        // 所有最尾端的消费者的序列号都和生产者的序列号相等
+        // 说明所有的消费者截止当前都已经消费完了全部的已生产的事件，返回false
+        return false;
     }
 
 

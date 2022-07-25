@@ -44,6 +44,11 @@ public class MyWorkProcessor<T> implements MyEventProcessor{
     }
 
     @Override
+    public boolean isRunning() {
+        return this.running.get();
+    }
+
+    @Override
     public void run() {
         if (!running.compareAndSet(false, true)) {
             throw new IllegalStateException("Thread is already running");

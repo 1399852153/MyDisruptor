@@ -79,4 +79,9 @@ public class MyBatchEventProcessor<T> implements MyEventProcessor{
         // 唤醒消费者线程（令其能立即检查到状态为停止）
         this.mySequenceBarrier.alert();
     }
+
+    @Override
+    public boolean isRunning() {
+        return this.running.get();
+    }
 }

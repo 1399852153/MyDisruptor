@@ -15,4 +15,6 @@ public interface MyEventProcessor extends Runnable{
      * 停止当前消费者
      * */
     void halt();
+
+    boolean isRunning();
 }
