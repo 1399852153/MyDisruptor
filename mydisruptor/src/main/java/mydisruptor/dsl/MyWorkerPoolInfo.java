@@ -37,7 +37,7 @@ public class MyWorkerPoolInfo<T> implements MyConsumerInfo {
     }
 
     @Override
-    public void markIsNotEndOfChain() {
+    public void markAsUsedInBarrier() {
         this.endOfChain = true;
     }
 

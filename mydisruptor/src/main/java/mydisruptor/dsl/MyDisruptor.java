@@ -8,7 +8,6 @@ import mydisruptor.waitstrategy.MyWaitStrategy;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -88,7 +87,7 @@ public class MyDisruptor<T> {
         final MySequenceBarrier sequenceBarrier = ringBuffer.newBarrier(barrierSequences);
         final MyWorkerPool<T> workerPool = new MyWorkerPool<>(ringBuffer, sequenceBarrier, myWorkHandlers);
 
-        // consumer都保存起来，便于start启动
+        // consumer都保存起来，便于start统一的启动或者halt、shutdown统一的停止
         consumerRepository.add(workerPool);
 
         final MySequence[] workerSequences = workerPool.getCurrentWorkerSequences();
@@ -111,6 +110,9 @@ public class MyDisruptor<T> {
                 // 新设置的就是当前消费者链条最末端的序列
                 ringBuffer.addConsumerSequence(sequence);
             }
+
+            // 将被剔除的序列的状态标记为其不属于消费者依赖链尾部（用于shutdown优雅停止）
+            consumerRepository.unMarkEventProcessorsAsEndOfChain(barrierSequences);
         }
     }
 

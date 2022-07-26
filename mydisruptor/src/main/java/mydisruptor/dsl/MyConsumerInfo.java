@@ -28,7 +28,7 @@ public interface MyConsumerInfo {
     /**
      * 将当前消费者标记为不是最尾端消费者
      * */
-    void markIsNotEndOfChain();
+    void markAsUsedInBarrier();
 
     /**
      * 当前消费者是否还在运行

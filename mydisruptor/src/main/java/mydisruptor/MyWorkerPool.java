@@ -67,6 +67,7 @@ public class MyWorkerPool<T> {
 
     public void halt() {
         for (MyWorkProcessor<?> processor : this.workEventProcessorList) {
+            // 挨个停止所有工作线程
             processor.halt();
         }
 

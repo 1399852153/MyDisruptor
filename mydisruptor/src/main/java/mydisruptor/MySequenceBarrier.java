@@ -70,5 +70,4 @@ public class MySequenceBarrier {
             throw MyAlertException.INSTANCE;
         }
     }
-
 }

@@ -259,7 +259,352 @@ public class MySingleProducerSequencer implements MyProducerSequencer {
 * 因为多线程生产者序列器中和nextValue、cachedConsumerSequenceValue等价的属性就是需要在多个生产者线程间共享的，因此确实需要频繁的在多个CPU核心的高速缓存行间进行同步。
   这种场景是实实在在的共享场景，而不是伪共享场景，因此也就不存在伪共享问题了。
 # 支持消费者线程优雅停止详解
+截止MyDisruptor的v5版本，消费者线程都是通过一个永不停止的while循环进行工作的，除非强制杀死线程，否则无法令消费者线程关闭，而这无疑是不优雅的。
+### 实现外部通知消费者线程自行终止
+为此，disruptor实现了令消费者线程主动停止的机制。
+* 具体思路是在消费者线程内部维护一个用于标识是否需要继续运行的标识running，默认是运行中，但外部可以去修改标识的状态（halt方法），将其标识为停止。
+* 消费者主循环时每次都检查一下该状态，如果标识是停止，则抛出AlertException异常。主循环中捕获该异常，然后通过一个break跳出主循环，主动地关闭。
+##### 实现了优雅停止功能的单线程消费者
+```java
+/**
+ * 单线程消费者（仿Disruptor.BatchEventProcessor）
+ * */
+public class MyBatchEventProcessor<T> implements MyEventProcessor{
 
-  todo 待完善
+    private final MySequence currentConsumeSequence = new MySequence(-1);
+    private final MyRingBuffer<T> myRingBuffer;
+    private final MyEventHandler<T> myEventConsumer;
+    private final MySequenceBarrier mySequenceBarrier;
+    private final AtomicBoolean running = new AtomicBoolean();
+
+    public MyBatchEventProcessor(MyRingBuffer<T> myRingBuffer,
+                                 MyEventHandler<T> myEventConsumer,
+                                 MySequenceBarrier mySequenceBarrier) {
+        this.myRingBuffer = myRingBuffer;
+        this.myEventConsumer = myEventConsumer;
+        this.mySequenceBarrier = mySequenceBarrier;
+    }
+
+    @Override
+    public void run() {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("Thread is already running");
+        }
+        this.mySequenceBarrier.clearAlert();
+
+        // 下一个需要消费的下标
+        long nextConsumerIndex = currentConsumeSequence.get() + 1;
+
+        // 消费者线程主循环逻辑，不断的尝试获取事件并进行消费（为了让代码更简单，暂不考虑优雅停止消费者线程的功能）
+        while(true) {
+            try {
+                long availableConsumeIndex = this.mySequenceBarrier.getAvailableConsumeSequence(nextConsumerIndex);
+
+                while (nextConsumerIndex <= availableConsumeIndex) {
+                    // 取出可以消费的下标对应的事件，交给eventConsumer消费
+                    T event = myRingBuffer.get(nextConsumerIndex);
+                    this.myEventConsumer.consume(event, nextConsumerIndex, nextConsumerIndex == availableConsumeIndex);
+                    // 批处理，一次主循环消费N个事件（下标加1，获取下一个）
+                    nextConsumerIndex++;
+                }
+
+                // 更新当前消费者的消费的序列（lazySet，不需要生产者实时的强感知刷缓存性能更好，因为生产者自己也不是实时的读消费者序列的）
+                this.currentConsumeSequence.lazySet(availableConsumeIndex);
+                LogUtil.logWithThreadName("更新当前消费者的消费的序列:" + availableConsumeIndex);
+            } catch (final MyAlertException ex) {
+                LogUtil.logWithThreadName("消费者MyAlertException" + ex);
+
+                // 被外部alert打断，检查running标记
+                if (!running.get()) {
+                    // running == false, break跳出主循环，运行结束
+                    break;
+                }
+            } catch (final Throwable ex) {
+                // 发生异常，消费进度依然推进（跳过这一批拉取的数据）（lazySet 原理同上）
+                this.currentConsumeSequence.lazySet(nextConsumerIndex);
+                nextConsumerIndex++;
+            }
+        }
+    }
+
+    @Override
+    public MySequence getCurrentConsumeSequence() {
+        return this.currentConsumeSequence;
+    }
+
+    @Override
+    public void halt() {
+        // 当前消费者状态设置为停止
+        running.set(false);
+
+        // 唤醒消费者线程（令其能立即检查到状态为停止）
+        this.mySequenceBarrier.alert();
+    }
+
+    @Override
+    public boolean isRunning() {
+        return this.running.get();
+    }
+}
+```
+##### 实现了优雅停止功能多线程消费者
+```java
+/**
+ * 多线程消费者工作线程 （仿Disruptor.WorkProcessor）
+ * */
+public class MyWorkProcessor<T> implements MyEventProcessor{
+
+    private final MySequence currentConsumeSequence = new MySequence(-1);
+    private final MyRingBuffer<T> myRingBuffer;
+    private final MyWorkHandler<T> myWorkHandler;
+    private final MySequenceBarrier sequenceBarrier;
+    private final MySequence workGroupSequence;
+
+    private final AtomicBoolean running = new AtomicBoolean(false);
+
+
+    public MyWorkProcessor(MyRingBuffer<T> myRingBuffer,
+                           MyWorkHandler<T> myWorkHandler,
+                                MySequenceBarrier sequenceBarrier,
+                                MySequence workGroupSequence) {
+        this.myRingBuffer = myRingBuffer;
+        this.myWorkHandler = myWorkHandler;
+        this.sequenceBarrier = sequenceBarrier;
+        this.workGroupSequence = workGroupSequence;
+    }
+
+    @Override
+    public MySequence getCurrentConsumeSequence() {
+        return currentConsumeSequence;
+    }
+
+    @Override
+    public void halt() {
+        // 当前消费者状态设置为停止
+        running.set(false);
+
+        // 唤醒消费者线程（令其能立即检查到状态为停止）
+        this.sequenceBarrier.alert();
+    }
+
+    @Override
+    public boolean isRunning() {
+        return this.running.get();
+    }
+
+    @Override
+    public void run() {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("Thread is already running");
+        }
+        this.sequenceBarrier.clearAlert();
+
+        long nextConsumerIndex = this.currentConsumeSequence.get();
+        // 设置哨兵值，保证第一次循环时nextConsumerIndex <= cachedAvailableSequence一定为false，走else分支通过序列屏障获得最大的可用序列号
+        long cachedAvailableSequence = Long.MIN_VALUE;
+
+        // 最近是否处理过了序列
+        boolean processedSequence = true;
+
+        while (true) {
+            try {
+                if(processedSequence) {
+                    // 争抢到了一个新的待消费序列，但还未实际进行消费（标记为false）
+                    processedSequence = false;
+
+                    // 如果已经处理过序列，则重新cas的争抢一个新的待消费序列
+                    do {
+                        nextConsumerIndex = this.workGroupSequence.get() + 1L;
+                        // 由于currentConsumeSequence会被注册到生产者侧，因此需要始终和workGroupSequence worker组的实际sequence保持协调
+                        // 即当前worker的消费序列currentConsumeSequence = 当前消费者组的序列workGroupSequence
+                        this.currentConsumeSequence.lazySet(nextConsumerIndex - 1L);
+                        // 问题：只使用workGroupSequence，每个worker不维护currentConsumeSequence行不行？
+                        // 回答：这是不行的。因为和单线程消费者的行为一样，都是具体的消费者eventHandler/workHandler执行过之后才更新消费者的序列号，令其对外部可见（生产者、下游消费者）
+                        // 因为消费依赖关系中约定，对于序列i事件只有在上游的消费者消费过后（eventHandler/workHandler执行过），下游才能消费序列i的事件
+                        // workGroupSequence主要是用于通过cas协调同一workerPool内消费者线程序列争抢的，对外的约束依然需要workProcessor本地的消费者序列currentConsumeSequence来控制
+
+                        // cas更新，保证每个worker线程都会获取到唯一的一个sequence
+                    } while (!workGroupSequence.compareAndSet(nextConsumerIndex - 1L, nextConsumerIndex));
+                }else{
+                    // processedSequence == false(手头上存在一个还未消费的序列)
+                    // 走到这里说明之前拿到了一个新的消费序列，但是由于nextConsumerIndex > cachedAvailableSequence，没有实际执行消费逻辑
+                    // 而是被阻塞后返回获得了最新的cachedAvailableSequence，重新执行一次循环走到了这里
+                    // 需要先把手头上的这个序列给消费掉，才能继续拿下一个消费序列
+                }
+
+                // cachedAvailableSequence只会存在两种情况
+                // 1 第一次循环，初始化为Long.MIN_VALUE，则必定会走到下面的else分支中
+                // 2 非第一次循环，则cachedAvailableSequence为序列屏障所允许的最大可消费序列
+
+                if (cachedAvailableSequence >= nextConsumerIndex) {
+                    // 争抢到的消费序列是满足要求的（小于序列屏障值，被序列屏障允许的），则调用消费者进行实际的消费
+
+                    // 取出可以消费的下标对应的事件，交给eventConsumer消费
+                    T event = myRingBuffer.get(nextConsumerIndex);
+                    this.myWorkHandler.consume(event);
+
+                    // 实际调用消费者进行消费了，标记为true.这样一来就可以在下次循环中cas争抢下一个新的消费序列了
+                    processedSequence = true;
+                } else {
+                    // 1 第一次循环会获取当前序列屏障的最大可消费序列
+                    // 2 非第一次循环，说明争抢到的序列超过了屏障序列的最大值，等待生产者推进到争抢到的sequence
+                    cachedAvailableSequence = sequenceBarrier.getAvailableConsumeSequence(nextConsumerIndex);
+                }
+            } catch (final MyAlertException ex) {
+                // 被外部alert打断，检查running标记
+                if (!running.get()) {
+                    // running == false, break跳出主循环，运行结束
+                    break;
+                }
+            } catch (final Throwable ex) {
+                // 消费者消费时发生了异常，也认为是成功消费了，避免阻塞消费序列
+                // 下次循环会cas争抢一个新的消费序列
+                processedSequence = true;
+            }
+        }
+    }
+}
+```
+```java
+/**
+ * 多线程消费者（仿Disruptor.WorkerPool）
+ * */
+public class MyWorkerPool<T> {
+
+  private final AtomicBoolean started = new AtomicBoolean(false);
+  private final MySequence workSequence = new MySequence(-1);
+  private final MyRingBuffer<T> myRingBuffer;
+  private final List<MyWorkProcessor<T>> workEventProcessorList;
+  
+  public void halt() {
+    for (MyWorkProcessor<?> processor : this.workEventProcessorList) {
+      // 挨个停止所有工作线程  
+      processor.halt();
+    }
+
+    started.set(false);
+  }
+
+  public boolean isRunning(){
+    return this.started.get();
+  }
+  
+  // 注意：省略了无关代码
+}
+```
+##### 实现了优雅停止功能的序列屏障
+* 在修改标识状态为停止的halt方法中，消费者线程可能由于等待生产者继续生产而处于阻塞状态（例如BlockingWaitStrategy），
+  所以还需要通过消费者维护的序列屏障SequenceBarrier的alert方法来尝试着唤醒消费者。
+```java
+/**
+ * 序列栅栏（仿Disruptor.SequenceBarrier）
+ * */
+public class MySequenceBarrier {
+
+    private final MyProducerSequencer myProducerSequencer;
+    private final MySequence currentProducerSequence;
+    private volatile boolean alerted = false;
+    private final MyWaitStrategy myWaitStrategy;
+    private final MySequence[] dependentSequencesList;
+
+    public MySequenceBarrier(MyProducerSequencer myProducerSequencer, MySequence currentProducerSequence,
+                             MyWaitStrategy myWaitStrategy, MySequence[] dependentSequencesList) {
+        this.myProducerSequencer = myProducerSequencer;
+        this.currentProducerSequence = currentProducerSequence;
+        this.myWaitStrategy = myWaitStrategy;
+
+        if(dependentSequencesList.length != 0) {
+            this.dependentSequencesList = dependentSequencesList;
+        }else{
+            // 如果传入的上游依赖序列为空，则生产者序列号作为兜底的依赖
+            this.dependentSequencesList = new MySequence[]{currentProducerSequence};
+        }
+    }
+
+    /**
+     * 获得可用的消费者下标（disruptor中的waitFor）
+     * */
+    public long getAvailableConsumeSequence(long currentConsumeSequence) throws InterruptedException, MyAlertException {
+        // 每次都检查下是否有被唤醒，被唤醒则会抛出MyAlertException代表当前消费者要终止运行了
+        checkAlert();
+
+        long availableSequence = this.myWaitStrategy.waitFor(currentConsumeSequence,currentProducerSequence,dependentSequencesList,this);
+
+        if (availableSequence < currentConsumeSequence) {
+            return availableSequence;
+        }
+
+        // 多线程生产者中，需要进一步约束（于v4版本新增）
+        return myProducerSequencer.getHighestPublishedSequence(currentConsumeSequence,availableSequence);
+    }
+
+    /**
+     * 唤醒可能处于阻塞态的消费者
+     * */
+    public void alert() {
+        this.alerted = true;
+        this.myWaitStrategy.signalWhenBlocking();
+    }
+
+    /**
+     * 重新启动时，清除标记
+     */
+    public void clearAlert() {
+        this.alerted = false;
+    }
+
+    /**
+     * 检查当前消费者的被唤醒状态
+     * */
+    public void checkAlert() throws MyAlertException {
+        if (alerted) {
+            throw MyAlertException.INSTANCE;
+        }
+    }
+}
+```  
+##### 由disruptor对外暴露的halt方法，停止当前所有消费者线程
+* disruptor类提供了一个halt方法，其基于组件提供的halt机制将所有注册的消费者线程全部关闭。
+* consumerInfo抽象了单线程/多线程消费者，其子类的halt方法内部会调用对应消费者的halt方法将对应消费者终止。
+```java
+/**
+ * disruptor dsl(仿Disruptor.Disruptor)
+ * */
+public class MyDisruptor<T> {
+
+  private final MyRingBuffer<T> ringBuffer;
+  private final Executor executor;
+  private final MyConsumerRepository<T> consumerRepository = new MyConsumerRepository<>();
+  private final AtomicBoolean started = new AtomicBoolean(false);
+  
+  /**
+   * 启动所有已注册的消费者
+   * */
+  public void start(){
+    // cas设置启动标识，避免重复启动
+    if (!started.compareAndSet(false, true)) {
+      throw new IllegalStateException("Disruptor只能启动一次");
+    }
+
+    // 遍历所有的消费者，挨个start启动
+    this.consumerRepository.getConsumerInfos().forEach(
+            item->item.start(this.executor)
+    );
+  }
+
+  /**
+   * 停止注册的所有消费者
+   * */
+  public void halt() {
+    // 遍历消费者信息列表，挨个调用halt方法终止
+    for (final MyConsumerInfo consumerInfo : this.consumerRepository.getConsumerInfos()) {
+      consumerInfo.halt();
+    }
+  }
+  
+  // 注意：省略了无关代码
+}
+```
+### 优雅停止消费者线程
 # 消费者序列集合的数据结构由ArrayList优化为数组详解
   todo 待完善
