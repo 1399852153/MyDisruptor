@@ -39,5 +39,4 @@ public interface MyConsumerInfo {
      * 获得消费者的序列号(多线程消费者由多个序列号对象)
      * */
     MySequence[] getSequences();
-
 }
