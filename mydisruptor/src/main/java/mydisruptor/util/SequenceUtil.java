@@ -15,10 +15,15 @@ public class SequenceUtil {
      * @param dependentSequenceList 依赖的序列集合
      * */
     public static long getMinimumSequence(long minimumSequence, MySequence[] dependentSequenceList){
-        for (MySequence sequence : dependentSequenceList) {
-            long value = sequence.get();
+        for (MySequence mySequence : dependentSequenceList) {
+            long value = mySequence.get();
             minimumSequence = Math.min(minimumSequence, value);
         }
+
+//        for(int i=0; i<dependentSequenceList.length; i++){
+//            long value = dependentSequenceList[i].get();
+//            minimumSequence = Math.min(minimumSequence, value);
+//        }
 
         return minimumSequence;
     }

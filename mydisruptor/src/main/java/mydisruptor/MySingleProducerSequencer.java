@@ -8,8 +8,7 @@ import java.util.concurrent.locks.LockSupport;
 
 /**
  * 单线程生产者序列器（仿Disruptor.SingleProducerSequencer）
- * 只支持单消费者的简易版本（只有一个consumerSequence）
- *
+ * *
  * 因为是单线程序列器，因此在设计上就是线程不安全的
  * */
 public class MySingleProducerSequencer implements MyProducerSequencer{

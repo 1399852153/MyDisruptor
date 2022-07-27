@@ -49,7 +49,9 @@ public class MyBatchEventProcessor<T> implements MyEventProcessor{
 
                 // 更新当前消费者的消费的序列（lazySet，不需要生产者实时的强感知刷缓存性能更好，因为生产者自己也不是实时的读消费者序列的）
                 this.currentConsumeSequence.lazySet(availableConsumeIndex);
-                LogUtil.logWithThreadName("更新当前消费者的消费的序列:" + availableConsumeIndex);
+
+                // 注释掉，为了和官方disruptor比较性能
+//                LogUtil.logWithThreadName("更新当前消费者的消费的序列:" + availableConsumeIndex);
             } catch (final MyAlertException ex) {
                 LogUtil.logWithThreadName("消费者MyAlertException" + ex);
 

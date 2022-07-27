@@ -981,7 +981,145 @@ public class MyWorkerPoolInfo<T> implements MyConsumerInfo {
 }
 ```
 * 至此，v6版本的MyDisruptor就完整的实现了消费者的优雅停止功能。生产者线程不再生产后便可以通过Disruptor提供的shutdown方法安全的、优雅的关闭所有的消费者。
-# 消费者序列集合的数据结构由ArrayList优化为数组详解
-  todo 待完善
-  
+# 生产者中的消费者序列集合由ArrayList优化为数组
+截止v5版本的MyDisruptor，是通过ArrayList线性表来存储生产者序列器（ProducerSequencer）中所注册的消费者序列集合的。而disruptor中却是直接使用数组来保存的，这是为什么呢？
+* disruptor中生产者序列器维护的消费者序列集合是会动态添加和删除的，早期版本的MyDisruptor直接使用ArrayList，避免了手工的对数组进行扩容，令代码更加的简单易懂。
+* 虽然ArrayList是线性表结构，基于数组做了一个简单的封装，但是在访问数组中元素时依然不如"array[index]"直接访问的方式效率高。  
+  原因在于ArrayList的get方法中，多了一个rangeCheck判断；而ArrayList的迭代器中则更是包括了对并发版本号等等的额外逻辑。  
+  有了额外逻辑的ArrayList读取的效率性能肯定是不如裸数组的。
+* 在绝大多数的场景下，裸数组和ArrayList这一点微小的性能差异是完全可以忽略的。
+  但disruptor中的生产者会不断的通过getMinimumSequence方法遍历维护的消费者序列。因此略微舍弃一些可读性，换来性能上的小提升是值得的。
+##### 生产者由ArrayList改为数组实现
+```java
+/**
+ * 单线程生产者序列器（仿Disruptor.SingleProducerSequencer）
+ *
+ * 因为是单线程序列器，因此在设计上就是线程不安全的
+ * */
+public class MySingleProducerSequencer implements MyProducerSequencer{
+
+    private static final AtomicReferenceFieldUpdater<MySingleProducerSequencer, MySequence[]> SEQUENCE_UPDATER =
+            AtomicReferenceFieldUpdater.newUpdater(MySingleProducerSequencer.class, MySequence[].class, "gatingConsumerSequences");
+    
+    @Override
+    public void addGatingConsumerSequence(MySequence newGatingConsumerSequence){
+        MySequenceGroups.addSequences(this,SEQUENCE_UPDATER,this.currentProducerSequence,newGatingConsumerSequence);
+    }
+
+    @Override
+    public void addGatingConsumerSequenceList(MySequence... newGatingConsumerSequences){
+        MySequenceGroups.addSequences(this,SEQUENCE_UPDATER,this.currentProducerSequence,newGatingConsumerSequences);
+    }
+
+    @Override
+    public void removeConsumerSequence(MySequence sequenceNeedRemove) {
+        MySequenceGroups.removeSequence(this,SEQUENCE_UPDATER,sequenceNeedRemove);
+    }
+
+    // 注意：省略了无关的代码
+}
+``` 
+```java
+/**
+ * 更改Sequence数组工具类（仿Disruptor.SequenceGroups）
+ * 注意：实现中cas的插入/删除机制在MyDisruptor中是不必要的，因为MyDisruptor不支持在运行时动态的注册新消费者（disruptor支持，但是有一些额外的复杂度）
+ *     只是为了和Disruptor的实现保持一致，可以更好的说明实现原理才这样做的，本质上只需要支持sequence数组扩容/缩容即可
+ * */
+public class MySequenceGroups {
+
+    /**
+     * 将新的需要注册的序列集合加入到holder对象的对应sequence数组中（sequencesToAdd集合）
+     * */
+    public static <T> void addSequences(
+            final T holder,
+            final AtomicReferenceFieldUpdater<T, MySequence[]> updater,
+            final MySequence currentProducerSequence,
+            final MySequence... sequencesToAdd) {
+        long cursorSequence;
+        MySequence[] updatedSequences;
+        MySequence[] currentSequences;
+
+        do {
+            // 获得数据持有者当前的数组引用
+            currentSequences = updater.get(holder);
+            // 将原数组中的数据复制到新的数组中
+            updatedSequences = Arrays.copyOf(currentSequences, currentSequences.length + sequencesToAdd.length);
+            cursorSequence = currentProducerSequence.get();
+
+            int index = currentSequences.length;
+            // 每个新添加的sequence值都以当前生产者的序列为准
+            for (MySequence sequence : sequencesToAdd) {
+                sequence.set(cursorSequence);
+                // 新注册sequence放入数组中
+                updatedSequences[index++] = sequence;
+            }
+            // cas的将新数组赋值给对象，允许disruptor在运行时并发的注册新的消费者sequence集合
+            // 只有cas赋值成功才会返回，失败的话会重新获取最新的currentSequences，重新构建、合并新的updatedSequences数组
+        } while (!updater.compareAndSet(holder, currentSequences, updatedSequences));
+
+        // 新注册的消费者序列，再以当前生产者序列为准做一次最终修正
+        cursorSequence = currentProducerSequence.get();
+        for (MySequence sequence : sequencesToAdd) {
+            sequence.set(cursorSequence);
+        }
+    }
+
+    /**
+     * 从holder的sequence数组中删除掉一个sequence
+     * */
+    public static <T> void removeSequence(
+            final T holder,
+            final AtomicReferenceFieldUpdater<T, MySequence[]> sequenceUpdater,
+            final MySequence sequenceNeedRemove) {
+        int numToRemove;
+        MySequence[] oldSequences;
+        MySequence[] newSequences;
+
+        do {
+            // 获得数据持有者当前的数组引用
+            oldSequences = sequenceUpdater.get(holder);
+            // 获得需要从数组中删除的sequence个数
+            numToRemove = countMatching(oldSequences, sequenceNeedRemove);
+
+            if (0 == numToRemove) {
+                // 没找到需要删除的Sequence,直接返回
+                return;
+            }
+
+            final int oldSize = oldSequences.length;
+            // 构造新的sequence数组
+            newSequences = new MySequence[oldSize - numToRemove];
+
+            for (int i = 0, pos = 0; i < oldSize; i++) {
+                // 将原数组中的sequence复制到新数组中
+                final MySequence testSequence = oldSequences[i];
+                if (sequenceNeedRemove != testSequence) {
+                    // 只复制不需要删除的数据
+                    newSequences[pos++] = testSequence;
+                }
+            }
+        } while (!sequenceUpdater.compareAndSet(holder, oldSequences, newSequences));
+    }
+
+    private static int countMatching(MySequence[] values, final MySequence toMatch) {
+        int numToRemove = 0;
+        for (MySequence value : values) {
+            if (value == toMatch) {
+                // 比对Sequence引用，如果和toMatch相同，则需要删除
+                numToRemove++;
+            }
+        }
+        return numToRemove;
+    }
+}
+```
 # 总结
+* 作为disruptor学习系列的最后一篇博客，v6版本对MyDisruptor存在的一些关键的性能问题做了最后的优化。最终的v6版本MyDisruptor除了少部分不常用的功能没实现外，整体已经和Disruptor相差无几了。
+* 纵观v1到v6版本迭代的全过程，MyDisruptor从最初简单的只支持单线程/单消费者开始，不断的丰富功能、优化性能，代码也逐渐膨胀，变得越来越复杂。
+  但只要按照每个版本都是为了实现一至多个完整功能模块的角度出发，有机的切分这些代码，也不会觉得难以理解。
+* 站在设计者的角度去实现MyDisruptor的过程中，我学到了很多东西，也逐渐地理解了disruptor在一些地方为什么那样实现的原因。  
+  这种临摹、自己动手实现的方式，可以大幅降低对disruptor这样一个实现巧妙、细节颇多的项目的学习曲线，帮助我们更好的理解disruptor的工作原理以及背后的设计思想。
+#####  
+disruptor无论在整体设计还是最终代码实现上都有很多值得反复琢磨和学习的细节，希望这个系列博客能帮助到对disruptor感兴趣的小伙伴。
+#####
+本篇博客的完整代码在我的github上：https://github.com/1399852153/MyDisruptor 分支：feature/lab6
