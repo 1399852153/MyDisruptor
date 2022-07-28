@@ -21,5 +21,5 @@
    [从零开始实现lmax-Disruptor队列（四）多线程生产者MultiProducerSequencer原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16448674.html)
 5. v5版本分支:  feature/lab5  
    [从零开始实现lmax-Disruptor队列（五）Disruptor DSL风格API原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16479148.html)
-5. v5版本分支:  feature/lab6  
+5. v6版本分支:  feature/lab6  
    [从零开始实现lmax-Disruptor队列（六）Disruptor 解决伪共享、消费者优雅停止实现原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16530544.html)
