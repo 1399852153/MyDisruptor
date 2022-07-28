@@ -10,7 +10,7 @@
 5. disruptor dsl(提供简单易用的接口，屏蔽掉人工组装依赖链的复杂度)
 6. ringBuffer等关键组件解决伪共享问题 + 参考disruptor对特定的数据结构做进一步优化  
 
-每一部分都会有单独的分支和对应的技术博客
+每一部分都会有单独的分支和对应的技术博客（已完结）
 1. v1版本分支:  feature/lab1  
    [从零开始实现lmax-Disruptor队列（一）RingBuffer与单生产者、单消费者工作原理解析](https://www.cnblogs.com/xiaoxiongcanguan/p/16318972.html)
 2. v2版本分支:  feature/lab2  
